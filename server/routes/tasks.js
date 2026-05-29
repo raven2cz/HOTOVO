@@ -80,10 +80,20 @@ function nextDueDate(due, recurrence) {
   const isDateOnly = typeof due === 'string' && due.length === 10;
   const base = new Date(isDateOnly ? `${due}T00:00:00Z` : due);
   if (Number.isNaN(base.getTime())) return null;
-  if (recurrence === 'daily') base.setUTCDate(base.getUTCDate() + 1);
-  else if (recurrence === 'weekly') base.setUTCDate(base.getUTCDate() + 7);
-  else if (recurrence === 'monthly') base.setUTCMonth(base.getUTCMonth() + 1);
-  else return null;
+  if (recurrence === 'daily') {
+    base.setUTCDate(base.getUTCDate() + 1);
+  } else if (recurrence === 'weekly') {
+    base.setUTCDate(base.getUTCDate() + 7);
+  } else if (recurrence === 'monthly') {
+    // Advance one month, clamping the day so 2026-01-31 -> 2026-02-28 (not March).
+    const day = base.getUTCDate();
+    base.setUTCDate(1);
+    base.setUTCMonth(base.getUTCMonth() + 1);
+    const lastDay = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + 1, 0)).getUTCDate();
+    base.setUTCDate(Math.min(day, lastDay));
+  } else {
+    return null;
+  }
   return isDateOnly ? base.toISOString().slice(0, 10) : base.toISOString();
 }
 
@@ -194,10 +204,12 @@ router.get(
       params.push(like, like);
     }
 
-    // Tag membership (tags stored as a JSON array of strings).
+    // Tag membership (tags stored as a JSON array of strings). Escape LIKE
+    // wildcards so a tag like "%" can't match everything.
     if (tag) {
-      query += ' AND tags LIKE ?';
-      params.push(`%${JSON.stringify(String(tag))}%`);
+      const needle = JSON.stringify(String(tag)).replace(/[\\%_]/g, '\\$&');
+      query += " AND tags LIKE ? ESCAPE '\\'";
+      params.push(`%${needle}%`);
     }
 
     // Relative due-date windows (server-local day boundaries).
@@ -344,20 +356,33 @@ router.put(
       if (parentChanged) { parentsToRollup.add(task.parent_id); parentsToRollup.add(parent_id); }
       for (const p of parentsToRollup) if (p) await rollupAncestors(tx, p);
 
-      // Recurring task completed → spawn the next occurrence (clone with the
-      // due date advanced). Based on the post-update row so any same-request
-      // edits (priority, tags…) carry over.
-      let spawnedId = null;
+      // Completing a (sub)tree → spawn the next occurrence for EVERY recurring,
+      // dated task that just became completed (the task itself and any recurring
+      // descendants the cascade completed), so cascade-completed recurring
+      // subtasks don't silently stop recurring. Rows are captured before any
+      // insert, so the new pending occurrences can't be re-selected (no loop).
+      const spawnedIds = [];
       if (statusChanged && status === 'completed') {
-        const cur = await tx.get('SELECT * FROM tasks WHERE id = ?', [id]);
-        const next = nextDueDate(cur.due_date, cur.recurrence);
-        if (next) {
-          spawnedId = uuidv4();
+        const recurring = await tx.all(
+          `WITH RECURSIVE d(id) AS (
+             SELECT ?
+             UNION ALL
+             SELECT t.id FROM tasks t JOIN d ON t.parent_id = d.id
+           )
+           SELECT t.* FROM tasks t JOIN d ON t.id = d.id
+           WHERE t.recurrence IS NOT NULL AND t.due_date IS NOT NULL`,
+          [id]
+        );
+        for (const cur of recurring) {
+          const next = nextDueDate(cur.due_date, cur.recurrence);
+          if (!next) continue;
+          const sid = uuidv4();
           await tx.run(
             `INSERT INTO tasks (id, list_id, parent_id, title, description, priority, due_date, recurrence, tags)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [spawnedId, cur.list_id, cur.parent_id, cur.title, cur.description, cur.priority, next, cur.recurrence, cur.tags]
+            [sid, cur.list_id, cur.parent_id, cur.title, cur.description, cur.priority, next, cur.recurrence, cur.tags]
           );
+          spawnedIds.push(sid);
           // A fresh pending occurrence under a parent re-opens that parent.
           if (cur.parent_id) await rollupAncestors(tx, cur.parent_id);
         }
@@ -370,7 +395,7 @@ router.put(
         const upsertIds = new Set();
         // The edited task is re-synced unless it just lost its due date.
         if (!removingDueDate) upsertIds.add(id);
-        if (spawnedId) upsertIds.add(spawnedId);
+        for (const sid of spawnedIds) upsertIds.add(sid);
         if (statusChanged) {
           for (const d of await descendantIds(tx, id)) upsertIds.add(d);
           for (const a of await ancestorIds(tx, task.parent_id)) upsertIds.add(a);
