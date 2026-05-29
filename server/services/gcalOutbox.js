@@ -121,7 +121,12 @@ export async function drainOutbox() {
         if (row.op === 'upsert') {
           const task = await db.get('SELECT * FROM tasks WHERE id = ?', [row.task_id]);
           // Task gone or no longer dated → nothing to mirror; drop the entry.
-          if (task && task.due_date) await syncTaskToGoogle(task);
+          if (task && task.due_date) {
+            const result = await syncTaskToGoogle(task);
+            // The task vanished/undated mid-insert and left an orphan event —
+            // queue a durable delete so a transient failure is retried, not lost.
+            if (result && result.orphan) await enqueueDelete(result.orphan);
+          }
         } else if (row.op === 'delete') {
           await deleteGoogleEvent(row.event_id);
         }

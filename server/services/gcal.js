@@ -148,7 +148,10 @@ export async function syncTaskToGoogle(task) {
 
   if (eventId) {
     try {
-      const response = await calendar.events.patch({
+      // Use update (full replace) not patch: a task can switch between all-day
+      // (date) and timed (dateTime), and patch can leave incompatible leftover
+      // start/end fields. update replaces the whole event cleanly.
+      const response = await calendar.events.update({
         calendarId: 'primary',
         eventId,
         requestBody: event
@@ -171,12 +174,12 @@ export async function syncTaskToGoogle(task) {
   const newEventId = response.data.id;
 
   // The insert is a slow network call; the task may have been deleted or had its
-  // due date cleared meanwhile. If so, the event we just created is an orphan —
-  // remove it instead of reattaching its id to a gone/undated task.
+  // due date cleared meanwhile. If so, the event we just created is an orphan.
+  // Return its id so the caller (drainer) can DURABLY queue its deletion — doing
+  // it inline could fail transiently and permanently lose the id.
   const fresh = await db.get('SELECT id, due_date FROM tasks WHERE id = ?', [task.id]);
   if (!fresh || !fresh.due_date) {
-    await deleteGoogleEvent(newEventId);
-    return null;
+    return { orphan: newEventId };
   }
 
   await db.run(

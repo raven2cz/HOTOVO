@@ -34,6 +34,14 @@ export function errorHandler(err, req, res, _next) {
     return res.status(err.status).json({ error: err.message });
   }
 
+  // Malformed JSON / body-parser errors are client errors. Return 400 and log
+  // ONLY the message — never the error object, which carries the raw request
+  // body (potentially tokens / OAuth data).
+  if (err && (err.type === 'entity.parse.failed' || (err.status === 400 && 'body' in err))) {
+    console.warn(`[error] ${req.method} ${req.originalUrl}: malformed request body (${err.message})`);
+    return res.status(400).json({ error: 'Neplatné tělo požadavku (očekáván platný JSON).' });
+  }
+
   // SQLite constraint violations are caused by bad client input, not server bugs.
   if (err && typeof err.code === 'string' && err.code.startsWith('SQLITE_CONSTRAINT')) {
     return res.status(400).json({ error: 'Požadavek porušuje datová pravidla (constraint).' });
