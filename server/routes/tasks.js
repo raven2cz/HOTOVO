@@ -349,26 +349,6 @@ router.put(
         );
       }
 
-      // Capture which tasks ACTUALLY transition to completed in this operation
-      // (the target + descendants that were not already completed) BEFORE the
-      // cascade flips them. Only these should spawn a next occurrence — otherwise
-      // re-completing an already-done parent would respawn old subtasks.
-      const transitioned = new Set();
-      if (statusChanged && status === 'completed') {
-        transitioned.add(id);
-        const pendingDesc = await tx.all(
-          `WITH RECURSIVE d(id) AS (
-             SELECT ?
-             UNION ALL
-             SELECT t.id FROM tasks t JOIN d ON t.parent_id = d.id
-           )
-           SELECT t.id FROM tasks t JOIN d ON t.id = d.id
-           WHERE t.id != ? AND t.status != 'completed'`,
-          [id, id]
-        );
-        for (const r of pendingDesc) transitioned.add(r.id);
-      }
-
       if (statusChanged) await cascadeStatusDown(tx, id, status);
 
       // Recompute every ancestor chain affected by this change.
@@ -377,35 +357,28 @@ router.put(
       if (parentChanged) { parentsToRollup.add(task.parent_id); parentsToRollup.add(parent_id); }
       for (const p of parentsToRollup) if (p) await rollupAncestors(tx, p);
 
-      // Spawn the next occurrence for each recurring, dated task that JUST became
-      // completed (self + cascade-completed recurring descendants). Rows are
-      // captured before any insert, so new pending occurrences can't be
-      // re-selected (no loop).
-      const spawnedIds = [];
-      if (transitioned.size) {
-        const recurring = await tx.all(
-          `WITH RECURSIVE d(id) AS (
-             SELECT ?
-             UNION ALL
-             SELECT t.id FROM tasks t JOIN d ON t.parent_id = d.id
-           )
-           SELECT t.* FROM tasks t JOIN d ON t.id = d.id
-           WHERE t.recurrence IS NOT NULL AND t.due_date IS NOT NULL`,
-          [id]
-        );
-        for (const cur of recurring) {
-          if (!transitioned.has(cur.id)) continue;
-          const next = nextDueDate(cur.due_date, cur.recurrence);
-          if (!next) continue;
-          const sid = uuidv4();
-          await tx.run(
-            `INSERT INTO tasks (id, list_id, parent_id, title, description, priority, due_date, recurrence, tags)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [sid, cur.list_id, cur.parent_id, cur.title, cur.description, cur.priority, next, cur.recurrence, cur.tags]
+      // Completing a recurring task spawns its next occurrence. Recurrence applies
+      // to TOP-LEVEL tasks only — a recurring subtask would re-open its parent and
+      // muddle the tree, so subtasks don't recur. An idempotency guard prevents a
+      // duplicate when a completed task is reopened and completed again.
+      let spawnedId = null;
+      if (statusChanged && status === 'completed' && !task.parent_id) {
+        const cur = await tx.get('SELECT * FROM tasks WHERE id = ?', [id]);
+        const next = nextDueDate(cur.due_date, cur.recurrence);
+        if (next) {
+          const existing = await tx.get(
+            `SELECT id FROM tasks WHERE list_id = ? AND parent_id IS NULL AND title = ?
+             AND recurrence = ? AND due_date = ? AND status = 'pending' LIMIT 1`,
+            [cur.list_id, cur.title, cur.recurrence, next]
           );
-          spawnedIds.push(sid);
-          // A fresh pending occurrence under a parent re-opens that parent.
-          if (cur.parent_id) await rollupAncestors(tx, cur.parent_id);
+          if (!existing) {
+            spawnedId = uuidv4();
+            await tx.run(
+              `INSERT INTO tasks (id, list_id, parent_id, title, description, priority, due_date, recurrence, tags)
+               VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
+              [spawnedId, cur.list_id, cur.title, cur.description, cur.priority, next, cur.recurrence, cur.tags]
+            );
+          }
         }
       }
 
@@ -416,7 +389,7 @@ router.put(
         const upsertIds = new Set();
         // The edited task is re-synced unless it just lost its due date.
         if (!removingDueDate) upsertIds.add(id);
-        for (const sid of spawnedIds) upsertIds.add(sid);
+        if (spawnedId) upsertIds.add(spawnedId);
         if (statusChanged) {
           for (const d of await descendantIds(tx, id)) upsertIds.add(d);
           for (const a of await ancestorIds(tx, task.parent_id)) upsertIds.add(a);

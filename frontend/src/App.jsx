@@ -889,16 +889,21 @@ export default function App() {
                   <label className="text-xs font-bold text-slate-400 uppercase tracking-wide">Opakování</label>
                   <select
                     value={editingTask.recurrence || 'none'}
+                    disabled={!!editingTask.parent_id}
                     onChange={(e) => setEditingTask({ ...editingTask, recurrence: e.target.value })}
-                    className="bg-slate-200 dark:bg-slate-900 border border-border-light dark:border-border-dark rounded-xl px-3.5 py-2 text-sm focus:outline-none"
+                    className="bg-slate-200 dark:bg-slate-900 border border-border-light dark:border-border-dark rounded-xl px-3.5 py-2 text-sm focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     <option value="none">Bez opakování</option>
                     <option value="daily">🔁 Denně</option>
                     <option value="weekly">🔁 Týdně</option>
                     <option value="monthly">🔁 Měsíčně</option>
                   </select>
-                  {editingTask.recurrence && editingTask.recurrence !== 'none' && !editingTask.due_date && (
-                    <span className="text-[11px] text-amber-500">Opakování se projeví až po nastavení termínu.</span>
+                  {editingTask.parent_id ? (
+                    <span className="text-[11px] text-slate-500">Opakování lze nastavit jen u hlavních úkolů (ne podúkolů).</span>
+                  ) : (
+                    editingTask.recurrence && editingTask.recurrence !== 'none' && !editingTask.due_date && (
+                      <span className="text-[11px] text-amber-500">Opakování se projeví až po nastavení termínu.</span>
+                    )
                   )}
                 </div>
 
