@@ -55,11 +55,14 @@ export default function SettingsModal({ isOpen, onClose }) {
     setLoading(true);
     setError(null);
     try {
-      await api.saveSyncConfig({
+      const payload = {
         gcal_client_id: syncConfig.gcal_client_id,
-        gcal_client_secret: syncConfig.gcal_client_secret,
         gcal_redirect_uri: syncConfig.gcal_redirect_uri
-      });
+      };
+      // Only send the secret when the user actually typed one — avoids wiping
+      // the stored secret when re-saving other fields.
+      if (syncConfig.gcal_client_secret) payload.gcal_client_secret = syncConfig.gcal_client_secret;
+      await api.saveSyncConfig(payload);
       await loadConfig();
       setSyncStatus('Konfigurace uložena. Nyní se můžete připojit.');
     } catch (err) {
@@ -411,7 +414,7 @@ export default function SettingsModal({ isOpen, onClose }) {
                           <div key={t.id} className="flex items-center justify-between bg-slate-900 border border-border-dark rounded-xl p-3.5">
                             <div>
                               <div className="font-semibold text-sm">{t.name}</div>
-                              <div className="font-mono text-xs text-slate-500 break-all select-all">{t.token.substring(0, 10)}••••••••••••••••</div>
+                              <div className="font-mono text-xs text-slate-500">••••••••••••••••••••</div>
                               <div className="text-[10px] text-slate-500 mt-1">Vytvořen: {new Date(t.created_at).toLocaleDateString('cs-CZ')}</div>
                             </div>
                             <button

@@ -5,6 +5,7 @@ import { getDb } from '../db.js';
 import { requireAuth } from '../auth.js';
 import { asyncHandler, badRequest, notFound } from '../util/http.js';
 import { assertNonEmptyString } from '../util/validate.js';
+import { deleteGoogleEvent } from '../services/gcal.js';
 
 const router = express.Router();
 
@@ -77,6 +78,20 @@ router.delete(
         `Projekt obsahuje ${taskCount.count} úkolů, které budou smazány. ` +
           'Zopakujte požadavek s parametrem ?confirm=true.'
       );
+    }
+
+    // Clean up Google Calendar events for the project's tasks before the DB
+    // cascade removes them (best-effort; failures must not block deletion).
+    const synced = await db.all(
+      'SELECT gcal_event_id FROM tasks WHERE list_id = ? AND gcal_event_id IS NOT NULL',
+      [id]
+    );
+    for (const { gcal_event_id } of synced) {
+      try {
+        await deleteGoogleEvent(gcal_event_id);
+      } catch (err) {
+        console.warn(`[gcal] event delete failed (${gcal_event_id}): ${err.message}`);
+      }
     }
 
     await db.run('DELETE FROM lists WHERE id = ?', [id]);

@@ -15,6 +15,10 @@ data/
 # Environment / secrets
 .env
 .env.local
+.todo-secret-key
+.audit-prompt.md
+.audit-out-*.md
+.audit-log-*.txt
 
 # Test / tooling artifacts
 test-results/

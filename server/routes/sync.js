@@ -37,7 +37,9 @@ router.post(
       db.run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', [key, value]);
 
     if (gcal_client_id !== undefined) await set('gcal_client_id', gcal_client_id);
-    if (gcal_client_secret !== undefined) await set('gcal_client_secret', encryptSecret(gcal_client_secret));
+    // Only overwrite the secret when a non-empty value is supplied, so saving
+    // other settings (with the secret field left blank) keeps the stored one.
+    if (gcal_client_secret) await set('gcal_client_secret', encryptSecret(gcal_client_secret));
     if (gcal_redirect_uri !== undefined) await set('gcal_redirect_uri', gcal_redirect_uri);
 
     res.json({ success: true, message: 'Google Calendar credentials uloženy.' });

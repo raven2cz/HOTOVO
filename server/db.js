@@ -71,22 +71,48 @@ async function initialise() {
   return db;
 }
 
+// The original well-known seeded token. Compromised by definition (it shipped
+// in the source), so it is intentionally NOT carried across the migration.
+const LEGACY_DEFAULT_TOKEN = 'agent-secret-42-pineapple-token';
+
 /**
- * The original schema stored API tokens in plaintext (`token` column) and
- * seeded a well-known default token. We now store only SHA-256 hashes. If the
- * legacy table is detected we drop it — the only value it can hold is the
- * compromised default, so there is nothing worth preserving — and recreate it.
+ * The original schema stored API tokens in plaintext (`token` column). We now
+ * store only SHA-256 hashes. When the legacy table is detected we migrate each
+ * user-created token to its hash (preserving id/name/created_at) and drop only
+ * the compromised default. The migration runs in a transaction.
  */
 async function migrateApiTokens(db) {
   const columns = await db.all('PRAGMA table_info(api_tokens)');
   const hasLegacyPlaintext = columns.some((c) => c.name === 'token');
 
   if (hasLegacyPlaintext) {
-    console.log('[db] Migrating api_tokens to hashed storage (dropping legacy plaintext tokens).');
-    await db.exec('DROP TABLE api_tokens');
+    console.log('[db] Migrating api_tokens to hashed storage (preserving user tokens).');
+    const legacyRows = await db.all('SELECT id, token, name, created_at FROM api_tokens');
+    await db.exec('BEGIN');
+    try {
+      await db.exec('ALTER TABLE api_tokens RENAME TO api_tokens_legacy');
+      await createApiTokensTable(db);
+      for (const row of legacyRows) {
+        if (row.token === LEGACY_DEFAULT_TOKEN) continue; // drop the compromised default
+        await db.run(
+          'INSERT INTO api_tokens (id, token_hash, name, created_at) VALUES (?, ?, ?, ?)',
+          [row.id, hashToken(row.token), row.name, row.created_at]
+        );
+      }
+      await db.exec('DROP TABLE api_tokens_legacy');
+      await db.exec('COMMIT');
+    } catch (err) {
+      await db.exec('ROLLBACK');
+      throw err;
+    }
+    return;
   }
 
-  await db.exec(`
+  await createApiTokensTable(db);
+}
+
+function createApiTokensTable(db) {
+  return db.exec(`
     CREATE TABLE IF NOT EXISTS api_tokens (
       id TEXT PRIMARY KEY,
       token_hash TEXT UNIQUE NOT NULL,

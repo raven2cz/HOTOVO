@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -23,33 +24,27 @@ export const IS_PRODUCTION = APP_ENV === 'production';
 /**
  * Resolve the SQLite file path.
  *
- * The production/dev database and the test database are strictly separated.
- * A dedicated DB_PATH override is honoured (used by the test runner to point
- * at a throwaway temp file), otherwise we fall back to repo-local files.
- *
- * Hard guard: when running under the test environment the resolved path must
- * never be the production database. This is the last line of defence against
- * the failure mode that previously wiped real data (tests writing to todo.db).
+ * Strict test/prod separation. In the test environment the production DB_PATH
+ * override is IGNORED entirely — the test DB is always a dedicated, test-named
+ * file (TEST_DB_PATH if provided, otherwise repo-local todo-test.db). This is
+ * the hard guard against the failure mode that previously wiped real data:
+ * tests can never be pointed at (and therefore never unlink) a production DB,
+ * regardless of DB_PATH / .env.
  */
 function resolveDbPath() {
-  const prodPath = path.resolve(repoRoot, process.env.DB_PATH || 'todo.db');
-  const testPath = path.resolve(
-    repoRoot,
-    process.env.DB_PATH || 'todo-test.db'
-  );
-
   if (IS_TEST) {
-    const resolved = testPath;
-    if (path.basename(resolved) === 'todo.db') {
+    const testPath = path.resolve(repoRoot, process.env.TEST_DB_PATH || 'todo-test.db');
+    const base = path.basename(testPath);
+    if (!/test/i.test(base)) {
       throw new Error(
-        '[config] Refusing to open the production database (todo.db) while NODE_ENV=test. ' +
-          'Set DB_PATH to a dedicated test database.'
+        `[config] Test database path must contain "test" (got "${base}"). ` +
+          'Refusing to run tests against a possibly-production database.'
       );
     }
-    return resolved;
+    return testPath;
   }
 
-  return prodPath;
+  return path.resolve(repoRoot, process.env.DB_PATH || 'todo.db');
 }
 
 export const DB_PATH = resolveDbPath();
@@ -74,3 +69,18 @@ export const CORS_ORIGINS = (process.env.CORS_ORIGINS || '')
 
 export const PUBLIC_BASE_URL =
   process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
+
+/**
+ * Hostnames that the loopback auth bypass will trust. Anything else (e.g. a
+ * DNS-rebinding domain pointing at 127.0.0.1) is rejected, even from loopback.
+ * Operators exposing the app can add their hostname via TRUSTED_HOSTS.
+ */
+export const TRUSTED_HOSTS = new Set([
+  'localhost',
+  '127.0.0.1',
+  '::1',
+  ...(process.env.TRUSTED_HOSTS || '')
+    .split(',')
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean)
+]);

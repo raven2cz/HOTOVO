@@ -49,14 +49,8 @@ async function assertValidParent(db, parentId, taskId) {
   }
 }
 
-/**
- * Propagate a status change through the task tree inside an open transaction.
- * Downward: all descendants inherit the new status. Upward: each ancestor is
- * recomputed as completed iff all its direct children are completed. The walk
- * always advances to parent.parent_id and is bounded by a visited set, so it
- * can never loop regardless of the status value.
- */
-async function propagateStatus(db, taskId, newStatus, parentId) {
+/** Set the status of a task and all of its descendants. */
+async function cascadeStatusDown(db, taskId, newStatus) {
   await db.run(
     `WITH RECURSIVE descendants(id) AS (
        SELECT ?
@@ -66,23 +60,37 @@ async function propagateStatus(db, taskId, newStatus, parentId) {
      UPDATE tasks SET status = ?, updated_at = datetime('now') WHERE id IN descendants`,
     [taskId, newStatus]
   );
+}
 
-  const visited = new Set([taskId]);
-  let currentParentId = parentId;
+/**
+ * Walk up the ancestor chain starting at `startParentId`, recomputing each
+ * ancestor as completed iff all of its direct children are completed. The walk
+ * always advances to parent.parent_id and is bounded by a visited set, so it
+ * can never loop. Safe to call after any structural change (create / delete /
+ * re-parent), not only explicit status updates.
+ */
+async function rollupAncestors(db, startParentId) {
+  const visited = new Set();
+  let currentParentId = startParentId;
   while (currentParentId && !visited.has(currentParentId)) {
     visited.add(currentParentId);
     const parent = await db.get('SELECT parent_id FROM tasks WHERE id = ?', [currentParentId]);
     if (!parent) break;
 
-    const incomplete = await db.get(
-      "SELECT COUNT(*) AS count FROM tasks WHERE parent_id = ? AND status != 'completed'",
+    const counts = await db.get(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN status != 'completed' THEN 1 ELSE 0 END) AS incomplete
+       FROM tasks WHERE parent_id = ?`,
       [currentParentId]
     );
-    const rolledUpStatus = incomplete.count === 0 ? 'completed' : 'pending';
-    await db.run(
-      "UPDATE tasks SET status = ?, updated_at = datetime('now') WHERE id = ?",
-      [rolledUpStatus, currentParentId]
-    );
+    // A childless task keeps its own status; otherwise it follows its children.
+    if (counts.total > 0) {
+      const rolledUpStatus = counts.incomplete === 0 ? 'completed' : 'pending';
+      await db.run(
+        "UPDATE tasks SET status = ?, updated_at = datetime('now') WHERE id = ?",
+        [rolledUpStatus, currentParentId]
+      );
+    }
 
     currentParentId = parent.parent_id;
   }
@@ -132,6 +140,9 @@ router.post(
       [id, list_id, parent_id || null, title, description || '', priority || 'medium', due_date || null]
     );
 
+    // A new pending child can flip a previously-completed parent back to pending.
+    if (parent_id) await rollupAncestors(db, parent_id);
+
     if (due_date) {
       const created = await db.get('SELECT * FROM tasks WHERE id = ?', [id]);
       await safeSync(created);
@@ -146,7 +157,10 @@ router.put(
   '/:id',
   asyncHandler(async (req, res) => {
     const { id } = req.params;
-    const { title, description, status, priority, due_date, list_id, parent_id, gcal_event_id } = req.body;
+    // gcal_event_id is intentionally NOT accepted from clients — only the
+    // calendar service may set it. Otherwise a caller could bind a task to an
+    // arbitrary Google event and have us patch/delete events they don't own.
+    const { title, description, status, priority, due_date, list_id, parent_id } = req.body;
 
     assertEnum(status, TASK_STATUSES, 'status');
     assertEnum(priority, TASK_PRIORITIES, 'priority');
@@ -179,19 +193,24 @@ router.put(
     if (dueDateProvided) setField('due_date', normalizedDueDate);
     if (list_id !== undefined) setField('list_id', list_id);
     if (parent_id !== undefined) setField('parent_id', parent_id);
-    if (gcal_event_id !== undefined) setField('gcal_event_id', gcal_event_id);
     if (removingDueDate) sets.push('gcal_event_id = NULL', 'gcal_updated_at = NULL');
 
     const statusChanged = status !== undefined && status !== task.status;
+    const parentChanged = parent_id !== undefined && parent_id !== task.parent_id;
 
-    // Apply the primary update and any status propagation atomically.
+    // Apply the primary update plus any status/structure propagation atomically.
     await db.run('BEGIN');
     try {
       await db.run(`UPDATE tasks SET ${sets.join(', ')} WHERE id = ?`, [...params, id]);
-      if (statusChanged) {
-        const effectiveParentId = parent_id !== undefined ? parent_id : task.parent_id;
-        await propagateStatus(db, id, status, effectiveParentId);
-      }
+
+      if (statusChanged) await cascadeStatusDown(db, id, status);
+
+      // Recompute every ancestor chain affected by this change.
+      const parentsToRollup = new Set();
+      if (statusChanged) parentsToRollup.add(parent_id !== undefined ? parent_id : task.parent_id);
+      if (parentChanged) { parentsToRollup.add(task.parent_id); parentsToRollup.add(parent_id); }
+      for (const p of parentsToRollup) if (p) await rollupAncestors(db, p);
+
       await db.run('COMMIT');
     } catch (err) {
       await db.run('ROLLBACK');
@@ -212,7 +231,7 @@ router.delete(
     const { id } = req.params;
     const db = await getDb();
 
-    const task = await db.get('SELECT id FROM tasks WHERE id = ?', [id]);
+    const task = await db.get('SELECT id, parent_id FROM tasks WHERE id = ?', [id]);
     if (!task) throw notFound('Úkol nebyl nalezen.');
 
     // Collect the whole subtree so we can clean up calendar events and report
@@ -232,6 +251,10 @@ router.delete(
     }
 
     await db.run('DELETE FROM tasks WHERE id = ?', [id]);
+
+    // Removing a child can complete a parent (all remaining children done).
+    if (task.parent_id) await rollupAncestors(db, task.parent_id);
+
     res.json({ success: true, deleted_id: id, deleted_count: subtree.length });
   })
 );

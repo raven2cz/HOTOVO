@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { getDb } from './db.js';
+import { TRUSTED_HOSTS } from './config.js';
 import { unauthorized } from './util/http.js';
 
 /** Hash a raw API token for storage / lookup. Tokens are never stored in plaintext. */
@@ -17,11 +18,23 @@ function isLoopback(req) {
   return ip === '127.0.0.1' || ip === '::1' || ip === 'localhost';
 }
 
+/** The Host header's hostname must be an explicitly trusted local host. */
+function isTrustedHost(req) {
+  const host = req.headers.host;
+  if (!host) return false;
+  try {
+    // URL parsing strips the port and normalises IPv6 brackets.
+    return TRUSTED_HOSTS.has(new URL(`http://${host}`).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Same-origin check for the loopback bypass. A request is considered safe when
  * it carries no Origin header (curl, native fetch, top-level navigation) or an
- * Origin whose host matches the request Host. This blocks cross-site (CSRF /
- * DNS-rebinding) requests from reaching the loopback bypass.
+ * Origin whose host matches the request Host. This blocks cross-site (CSRF)
+ * requests from reaching the loopback bypass.
  */
 function isSameOrigin(req) {
   const origin = req.headers.origin;
@@ -61,7 +74,9 @@ export async function requireAuth(req, res, next) {
       return next();
     }
 
-    if (isLoopback(req) && isSameOrigin(req)) {
+    // Local UI convenience: trust same-origin loopback requests, but only when
+    // the Host header is an allow-listed local hostname (defeats DNS rebinding).
+    if (isLoopback(req) && isTrustedHost(req) && isSameOrigin(req)) {
       req.agent = { id: 'local-ui', name: 'Local UI' };
       return next();
     }
