@@ -71,6 +71,7 @@ export const TRUSTED_HOSTS = new Set([
   'localhost',
   '127.0.0.1',
   '::1',
+  '[::1]', // URL.hostname keeps brackets for IPv6 literals
   ...(process.env.TRUSTED_HOSTS || '')
     .split(',')
     .map((h) => h.trim().toLowerCase())
