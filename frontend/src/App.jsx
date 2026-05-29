@@ -760,8 +760,11 @@ export default function App() {
                       value={editingTask.due_date ? editingTask.due_date.split('T')[0] : ''}
                       onChange={(e) => {
                         const val = e.target.value;
-                        // Store date-only (YYYY-MM-DD) to avoid timezone drift.
-                        setEditingTask({ ...editingTask, due_date: val || null });
+                        // Preserve a timed task's time-of-day (and timezone) when
+                        // only the date is changed; otherwise store date-only.
+                        const original = editingTask.due_date || '';
+                        const timePart = original.includes('T') ? original.slice(10) : '';
+                        setEditingTask({ ...editingTask, due_date: val ? `${val}${timePart}` : null });
                       }}
                       className="bg-slate-200 dark:bg-slate-900 border border-border-light dark:border-border-dark rounded-xl px-3.5 py-2 text-sm focus:outline-none text-slate-600 dark:text-slate-300"
                     />

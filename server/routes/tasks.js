@@ -309,6 +309,15 @@ router.delete(
       [id]
     );
 
+    // Deleting a parent cascades to its subtasks — require explicit confirmation
+    // so one call can't silently wipe a whole subtree.
+    if (subtree.length > 1 && req.query.confirm !== 'true') {
+      throw badRequest(
+        `Úkol má ${subtree.length - 1} podúkolů, které budou také smazány. ` +
+          'Zopakujte požadavek s parametrem ?confirm=true.'
+      );
+    }
+
     await db.run('DELETE FROM tasks WHERE id = ?', [id]);
 
     // Removing a child can complete a parent (all remaining children done).

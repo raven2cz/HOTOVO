@@ -46,7 +46,7 @@ export const api = {
   getTasks: (filters = {}) => request(`/api/tasks${toQuery(filters)}`),
   createTask: (taskData) => request('/api/tasks', { method: 'POST', body: taskData }),
   updateTask: (id, taskData) => request(`/api/tasks/${id}`, { method: 'PUT', body: taskData }),
-  deleteTask: (id) => request(`/api/tasks/${id}`, { method: 'DELETE' }),
+  deleteTask: (id) => request(`/api/tasks/${id}?confirm=true`, { method: 'DELETE' }),
 
   // Lists
   getLists: () => request('/api/lists'),

@@ -103,7 +103,9 @@ function formatDueDate(value) {
 function csvCell(value) {
   if (value === null || value === undefined) return '""';
   let str = String(value);
-  if (/^[=+\-@\t\r]/.test(str)) str = `'${str}`;
+  // Prefix a quote if the cell is (after optional leading whitespace) a formula,
+  // or starts with tab/CR/LF that a parser might strip to expose one.
+  if (/^[\s]*[=+\-@]/.test(str) || /^[\t\r\n]/.test(str)) str = `'${str}`;
   return `"${str.replace(/"/g, '""')}"`;
 }
 
