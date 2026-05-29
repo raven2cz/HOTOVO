@@ -9,7 +9,7 @@ frontend/dist/
 *.db-journal
 *.db-wal
 *.db-shm
-*.db.backup-*
+*.db.*
 data/
 
 # Environment / secrets

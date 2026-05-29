@@ -40,8 +40,9 @@ app.use('/api/docs', docsRouter);
 // bypass. Intentionally minimal — exposes no runtime details.
 app.get('/api/health', requireAuth, (req, res) => res.json({ status: 'ok' }));
 
-// Unmatched API routes return JSON 404 rather than the SPA shell.
-app.use('/api', (req, res) => res.status(404).json({ error: 'Endpoint nebyl nalezen.' }));
+// Unmatched API routes: authenticate first so unknown paths don't reveal route
+// existence (unauthenticated callers get 401, not 404), then return JSON 404.
+app.use('/api', requireAuth, (req, res) => res.status(404).json({ error: 'Endpoint nebyl nalezen.' }));
 
 // Serve the built frontend (production) and fall back to index.html for SPA routing.
 const frontendDistPath = path.resolve(__dirname, '../frontend/dist');

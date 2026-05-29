@@ -61,7 +61,10 @@ router.post(
   asyncHandler(async (req, res) => {
     const db = await getDb();
     const state = crypto.randomBytes(16).toString('hex');
-    await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('gcal_oauth_state', ?)", [state]);
+    // Store each state as its own short-lived nonce so concurrent connect
+    // attempts don't invalidate one another. Prune expired ones opportunistically.
+    await db.run('INSERT INTO oauth_states (state) VALUES (?)', [state]);
+    await db.run("DELETE FROM oauth_states WHERE created_at < datetime('now', '-10 minutes')");
     res.json({ url: await getAuthUrl(state) });
   })
 );
@@ -75,11 +78,16 @@ router.get(
     if (!code) return res.status(400).send('Chybí autorizační kód Google API.');
 
     const db = await getDb();
-    const expected = (await db.get("SELECT value FROM settings WHERE key = 'gcal_oauth_state'"))?.value;
-    if (!state || !expected || state !== expected) {
-      return res.status(400).send('Neplatný nebo chybějící state parametr (možný CSRF).');
+    const match = state
+      ? await db.get(
+          "SELECT state FROM oauth_states WHERE state = ? AND created_at >= datetime('now', '-10 minutes')",
+          [state]
+        )
+      : null;
+    if (!match) {
+      return res.status(400).send('Neplatný, prošlý nebo chybějící state parametr (možný CSRF).');
     }
-    await db.run("DELETE FROM settings WHERE key = 'gcal_oauth_state'");
+    await db.run('DELETE FROM oauth_states WHERE state = ?', [state]);
 
     try {
       await handleCallback(code);
@@ -136,8 +144,9 @@ router.post(
     }
 
     await db.run(
-      "DELETE FROM settings WHERE key IN ('gcal_refresh_token', 'gcal_access_token', 'gcal_token_expiry', 'gcal_oauth_state')"
+      "DELETE FROM settings WHERE key IN ('gcal_refresh_token', 'gcal_access_token', 'gcal_token_expiry')"
     );
+    await db.run('DELETE FROM oauth_states');
     await db.run('UPDATE tasks SET gcal_event_id = NULL, gcal_updated_at = NULL');
 
     res.json({
