@@ -17,8 +17,15 @@
 
 import readline from 'node:readline';
 
-const BASE = `http://127.0.0.1:${process.env.PORT || 3000}`;
+// Validate PORT strictly so it can't redirect fetch (and the bearer token) to
+// an attacker-controlled host via a crafted env value.
+const rawPort = Number(process.env.PORT);
+const PORT = Number.isInteger(rawPort) && rawPort >= 1 && rawPort <= 65535 ? rawPort : 3000;
+const BASE = `http://127.0.0.1:${PORT}`;
 const TOKEN = process.env.HOTOVO_API_TOKEN || '';
+
+/** Encode an id for safe use as a single URL path segment (defeats path traversal). */
+const seg = (id) => encodeURIComponent(String(id));
 
 const PROTOCOL_VERSION = '2024-11-05';
 
@@ -130,13 +137,13 @@ const TOOLS = [
         parent_id: { type: ['string', 'null'] }
       }
     },
-    run: ({ id, ...patch }) => callApi('PUT', `/api/tasks/${id}`, patch)
+    run: ({ id, ...patch }) => callApi('PUT', `/api/tasks/${seg(id)}`, patch)
   },
   {
     name: 'complete_task',
     description: 'Označí úkol jako splněný (status=completed). Args: id*.',
     inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
-    run: (a) => callApi('PUT', `/api/tasks/${a.id}`, { status: 'completed' })
+    run: (a) => callApi('PUT', `/api/tasks/${seg(a.id)}`, { status: 'completed' })
   },
   {
     name: 'delete_task',
@@ -146,7 +153,7 @@ const TOOLS = [
       required: ['id'],
       properties: { id: { type: 'string' }, confirm: { type: 'boolean' } }
     },
-    run: (a) => callApi('DELETE', `/api/tasks/${a.id}${a.confirm ? '?confirm=true' : ''}`)
+    run: (a) => callApi('DELETE', `/api/tasks/${seg(a.id)}${a.confirm ? '?confirm=true' : ''}`)
   }
 ];
 
