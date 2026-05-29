@@ -43,7 +43,7 @@ export async function enqueueUpsert(taskId, conn) {
   await db.run(
     `INSERT INTO gcal_outbox (id, op, task_id)
      SELECT ?, 'upsert', ?
-     WHERE NOT EXISTS (SELECT 1 FROM gcal_outbox WHERE op = 'upsert' AND task_id = ? AND in_progress = 0)`,
+     WHERE NOT EXISTS (SELECT 1 FROM gcal_outbox WHERE op = 'upsert' AND task_id = ? AND in_progress = 0 AND dead = 0)`,
     [uuidv4(), taskId, taskId]
   );
 }
@@ -59,7 +59,7 @@ export async function enqueueDelete(eventId, conn, taskId = null) {
   await db.run(
     `INSERT INTO gcal_outbox (id, op, event_id, task_id)
      SELECT ?, 'delete', ?, ?
-     WHERE NOT EXISTS (SELECT 1 FROM gcal_outbox WHERE op = 'delete' AND event_id = ? AND in_progress = 0)`,
+     WHERE NOT EXISTS (SELECT 1 FROM gcal_outbox WHERE op = 'delete' AND event_id = ? AND in_progress = 0 AND dead = 0)`,
     [uuidv4(), eventId, taskId, eventId]
   );
 }

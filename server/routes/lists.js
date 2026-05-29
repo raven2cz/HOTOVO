@@ -90,6 +90,9 @@ router.delete(
         [id]
       );
 
+      // Delete the project's tasks EXPLICITLY first (robust even if a legacy DB
+      // lacks the ON DELETE CASCADE), then the project itself.
+      await tx.run('DELETE FROM tasks WHERE list_id = ?', [id]);
       await tx.run('DELETE FROM lists WHERE id = ?', [id]);
 
       if (configured) {

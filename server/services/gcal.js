@@ -166,6 +166,16 @@ export async function syncTaskToGoogle(task) {
 
   const response = await calendar.events.insert({ calendarId: 'primary', requestBody: event });
   const newEventId = response.data.id;
+
+  // The insert is a slow network call; the task may have been deleted or had its
+  // due date cleared meanwhile. If so, the event we just created is an orphan —
+  // remove it instead of reattaching its id to a gone/undated task.
+  const fresh = await db.get('SELECT id, due_date FROM tasks WHERE id = ?', [task.id]);
+  if (!fresh || !fresh.due_date) {
+    await deleteGoogleEvent(newEventId);
+    return null;
+  }
+
   await db.run(
     "UPDATE tasks SET gcal_event_id = ?, gcal_updated_at = datetime('now') WHERE id = ?",
     [newEventId, task.id]

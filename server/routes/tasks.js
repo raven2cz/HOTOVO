@@ -445,7 +445,13 @@ router.delete(
 
       const deleteEventIds = subtree.filter((n) => n.gcal_event_id).map((n) => n.gcal_event_id);
 
-      await tx.run('DELETE FROM tasks WHERE id = ?', [id]);
+      // Delete the whole subtree EXPLICITLY rather than relying on ON DELETE
+      // CASCADE — robust even on a legacy DB whose tasks table lacks the FK.
+      const subtreeIds = subtree.map((n) => n.id);
+      await tx.run(
+        `DELETE FROM tasks WHERE id IN (${subtreeIds.map(() => '?').join(',')})`,
+        subtreeIds
+      );
 
       const upsertIds = [];
       if (task.parent_id) {
