@@ -146,6 +146,7 @@ async function initialise() {
       last_error TEXT,
       next_attempt_at TEXT,
       dead INTEGER NOT NULL DEFAULT 0,
+      in_progress INTEGER NOT NULL DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now'))
     );
 
@@ -190,11 +191,14 @@ async function migrateTasks(db) {
   }
 }
 
-/** Add the `dead` column to gcal_outbox for databases created before it existed. */
+/** Add columns to gcal_outbox for databases created before they existed. */
 async function migrateOutbox(db) {
-  const columns = await db.all('PRAGMA table_info(gcal_outbox)');
-  if (!columns.some((c) => c.name === 'dead')) {
+  const columns = (await db.all('PRAGMA table_info(gcal_outbox)')).map((c) => c.name);
+  if (!columns.includes('dead')) {
     await db.exec('ALTER TABLE gcal_outbox ADD COLUMN dead INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!columns.includes('in_progress')) {
+    await db.exec('ALTER TABLE gcal_outbox ADD COLUMN in_progress INTEGER NOT NULL DEFAULT 0');
   }
 }
 

@@ -27,14 +27,23 @@ let draining = false;
 export async function enqueueUpsert(taskId, conn) {
   if (!taskId) return;
   const db = conn || (await getDb());
-  // Cancel any pending delete tied to this task: if the task is being (re)synced
-  // it must exist, so a queued delete of its event is now stale (e.g. due date
-  // cleared then re-added before the delete drained).
+
+  // Only a task that CURRENTLY has a due date will (re)create/patch its event.
+  // An undated task has nothing to sync — and must NOT cancel a legitimate
+  // pending delete of its old event.
+  const task = await db.get('SELECT due_date FROM tasks WHERE id = ?', [taskId]);
+  if (!task || !task.due_date) return;
+
+  // Re-syncing a dated task supersedes a pending delete of its old event
+  // (idempotent insert reuses the same event), so cancel that stale delete.
   await db.run("DELETE FROM gcal_outbox WHERE op = 'delete' AND task_id = ?", [taskId]);
+
+  // Dedup only against NOT-yet-claimed rows, so a change made while an upsert is
+  // mid-flight (in_progress=1) still enqueues a fresh follow-up.
   await db.run(
     `INSERT INTO gcal_outbox (id, op, task_id)
      SELECT ?, 'upsert', ?
-     WHERE NOT EXISTS (SELECT 1 FROM gcal_outbox WHERE op = 'upsert' AND task_id = ?)`,
+     WHERE NOT EXISTS (SELECT 1 FROM gcal_outbox WHERE op = 'upsert' AND task_id = ? AND in_progress = 0)`,
     [uuidv4(), taskId, taskId]
   );
 }
@@ -50,7 +59,7 @@ export async function enqueueDelete(eventId, conn, taskId = null) {
   await db.run(
     `INSERT INTO gcal_outbox (id, op, event_id, task_id)
      SELECT ?, 'delete', ?, ?
-     WHERE NOT EXISTS (SELECT 1 FROM gcal_outbox WHERE op = 'delete' AND event_id = ?)`,
+     WHERE NOT EXISTS (SELECT 1 FROM gcal_outbox WHERE op = 'delete' AND event_id = ? AND in_progress = 0)`,
     [uuidv4(), eventId, taskId, eventId]
   );
 }
@@ -68,9 +77,15 @@ export async function drainOutbox() {
   try {
     if (!(await isSyncConfigured())) return { skipped: 'not_connected' };
     const db = await getDb();
+
+    // Recover any rows left claimed by a crashed drain (safe: drains are
+    // serialized + single-process, so nothing is legitimately claimed now).
+    await db.run('UPDATE gcal_outbox SET in_progress = 0 WHERE in_progress = 1');
+
     const rows = await db.all(
       `SELECT * FROM gcal_outbox
-       WHERE dead = 0 AND (next_attempt_at IS NULL OR next_attempt_at <= datetime('now'))
+       WHERE dead = 0 AND in_progress = 0
+         AND (next_attempt_at IS NULL OR next_attempt_at <= datetime('now'))
        ORDER BY created_at ASC
        LIMIT ?`,
       [BATCH_SIZE]
@@ -79,6 +94,9 @@ export async function drainOutbox() {
     let success = 0;
     let failed = 0;
     for (const row of rows) {
+      // Claim the row before the (slow) Google call so a concurrent edit during
+      // sync enqueues a fresh follow-up instead of being deduped against this row.
+      await db.run('UPDATE gcal_outbox SET in_progress = 1 WHERE id = ?', [row.id]);
       try {
         if (row.op === 'upsert') {
           const task = await db.get('SELECT * FROM tasks WHERE id = ?', [row.task_id]);
@@ -99,15 +117,15 @@ export async function drainOutbox() {
             `[gcal] dead-lettering outbox ${row.op} after ${attempts} attempts: ${err.message}`
           );
           await db.run(
-            'UPDATE gcal_outbox SET attempts = ?, last_error = ?, dead = 1 WHERE id = ?',
+            'UPDATE gcal_outbox SET attempts = ?, last_error = ?, dead = 1, in_progress = 0 WHERE id = ?',
             [attempts, String(err.message).slice(0, 500), row.id]
           );
         } else {
-          // Exponential backoff capped at 60 minutes.
+          // Exponential backoff capped at 60 minutes; release the claim.
           const backoffMin = Math.min(2 ** attempts, 60);
           await db.run(
             `UPDATE gcal_outbox
-             SET attempts = ?, last_error = ?, next_attempt_at = datetime('now', ?)
+             SET attempts = ?, last_error = ?, next_attempt_at = datetime('now', ?), in_progress = 0
              WHERE id = ?`,
             [attempts, String(err.message).slice(0, 500), `+${backoffMin} minutes`, row.id]
           );

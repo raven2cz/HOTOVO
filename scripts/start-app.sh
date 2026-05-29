@@ -20,11 +20,10 @@ if [ ! -d "node_modules" ] || [ ! -d "server/node_modules" ] || [ ! -d "frontend
     ./scripts/install-arch.sh
 fi
 
-# Build the frontend bundle if it is missing (production serves static files).
-if [ ! -f "frontend/dist/index.html" ]; then
-    echo -e "${BLUE}Sestavuji produkční frontend...${NC}"
-    npm run build:frontend
-fi
+# Always (re)build the frontend so production never serves stale assets after a
+# source change.
+echo -e "${BLUE}Sestavuji produkční frontend...${NC}"
+npm run build:frontend
 
 echo -e "${BLUE}Spouštím HOTOVO v produkčním režimu...${NC}"
 NODE_ENV=production npm start

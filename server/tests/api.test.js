@@ -261,13 +261,19 @@ test('Backend API Integration Tests Suite', async (t) => {
     const db = await getDb();
     await db.run('DELETE FROM gcal_outbox');
 
-    await enqueueUpsert('task-xyz');
-    await enqueueUpsert('task-xyz'); // duplicate — should be collapsed
+    // enqueueUpsert only queues for a real, dated task.
+    const ol = await (await fetch(`${baseUrl}/api/lists`, { method: 'POST', headers: json(), body: JSON.stringify({ name: 'Outbox' }) })).json();
+    const ot = await (await fetch(`${baseUrl}/api/tasks`, { method: 'POST', headers: json(), body: JSON.stringify({ title: 'O', list_id: ol.id, due_date: '2026-07-01' }) })).json();
+    await db.run('DELETE FROM gcal_outbox'); // clear anything the create might have queued
+
+    await enqueueUpsert(ot.id);
+    await enqueueUpsert(ot.id); // duplicate — should be collapsed
     await enqueueDelete('event-abc');
     await enqueueDelete('event-abc'); // duplicate — should be collapsed
 
     const upserts = await db.get(
-      "SELECT COUNT(*) AS c FROM gcal_outbox WHERE op = 'upsert' AND task_id = 'task-xyz'"
+      "SELECT COUNT(*) AS c FROM gcal_outbox WHERE op = 'upsert' AND task_id = ?",
+      [ot.id]
     );
     const deletes = await db.get(
       "SELECT COUNT(*) AS c FROM gcal_outbox WHERE op = 'delete' AND event_id = 'event-abc'"
