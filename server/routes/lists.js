@@ -67,38 +67,39 @@ router.delete(
   '/:id',
   asyncHandler(async (req, res) => {
     const { id } = req.params;
-    const db = await getDb();
-
-    const list = await db.get('SELECT * FROM lists WHERE id = ?', [id]);
-    if (!list) throw notFound('List nebyl nalezen.');
-
-    const taskCount = await db.get('SELECT COUNT(*) AS count FROM tasks WHERE list_id = ?', [id]);
-
-    if (taskCount.count > 0 && req.query.confirm !== 'true') {
-      throw badRequest(
-        `Projekt obsahuje ${taskCount.count} úkolů, které budou smazány. ` +
-          'Zopakujte požadavek s parametrem ?confirm=true.'
-      );
-    }
-
-    // Capture the project's synced events, then delete the list (DB cascade
-    // removes its tasks) and queue the remote deletes in the SAME transaction,
-    // so the durable cleanup commits atomically with the delete.
-    const synced = await db.all(
-      'SELECT gcal_event_id FROM tasks WHERE list_id = ? AND gcal_event_id IS NOT NULL',
-      [id]
-    );
+    const confirmed = req.query.confirm === 'true';
     const configured = await isSyncConfigured();
 
-    await withTransaction(async (tx) => {
+    // Existence check, task count + confirmation, synced-event capture, delete,
+    // and outbox enqueue ALL run in one transaction so a concurrent insert into
+    // the list can't slip a task past the count/confirmation or remote cleanup.
+    const { taskCount, queued } = await withTransaction(async (tx) => {
+      const list = await tx.get('SELECT id FROM lists WHERE id = ?', [id]);
+      if (!list) throw notFound('List nebyl nalezen.');
+
+      const count = (await tx.get('SELECT COUNT(*) AS count FROM tasks WHERE list_id = ?', [id])).count;
+      if (count > 0 && !confirmed) {
+        throw badRequest(
+          `Projekt obsahuje ${count} úkolů, které budou smazány. ` +
+            'Zopakujte požadavek s parametrem ?confirm=true.'
+        );
+      }
+
+      const synced = await tx.all(
+        'SELECT gcal_event_id FROM tasks WHERE list_id = ? AND gcal_event_id IS NOT NULL',
+        [id]
+      );
+
       await tx.run('DELETE FROM lists WHERE id = ?', [id]);
+
       if (configured) {
         for (const { gcal_event_id } of synced) await enqueueDelete(gcal_event_id, tx);
       }
+      return { taskCount: count, queued: synced.length };
     });
 
-    if (configured && synced.length) await flushOutbox();
-    res.json({ success: true, deleted_id: id, deleted_task_count: taskCount.count });
+    if (configured && queued) await flushOutbox();
+    res.json({ success: true, deleted_id: id, deleted_task_count: taskCount });
   })
 );
 

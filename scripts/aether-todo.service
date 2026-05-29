@@ -35,6 +35,15 @@ ExecStartPre=/usr/bin/npm run build:frontend
 ExecStart=/usr/bin/node /home/box/git/github/todo-list/server/index.js
 Restart=on-failure
 RestartSec=5
+# Sandboxing: limit blast radius if the app or a dependency is compromised.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectControlGroups=true
+ProtectKernelTunables=true
+RestrictSUIDSGID=true
+# The app writes its SQLite DB / key / token files in the working directory.
+ReadWritePaths=/home/box/git/github/todo-list
 # To expose on the LAN, add HOST=0.0.0.0 below AFTER configuring API tokens.
 Environment=PORT=3000 NODE_ENV=production
 # Recommended: keep the at-rest encryption key OUT of the data directory.

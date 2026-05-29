@@ -310,39 +310,37 @@ router.delete(
   asyncHandler(async (req, res) => {
     const { id } = req.params;
     const db = await getDb();
-
-    const task = await db.get('SELECT id, parent_id FROM tasks WHERE id = ?', [id]);
-    if (!task) throw notFound('Úkol nebyl nalezen.');
-
-    // Collect the whole subtree so we can clean up calendar events and report
-    // exactly how many tasks the cascade will remove.
-    const subtree = await db.all(
-      `WITH RECURSIVE descendants(id) AS (
-         SELECT ?
-         UNION ALL
-         SELECT t.id FROM tasks t JOIN descendants d ON t.parent_id = d.id
-       )
-       SELECT t.id, t.gcal_event_id FROM tasks t JOIN descendants d ON t.id = d.id`,
-      [id]
-    );
-
-    // Deleting a parent cascades to its subtasks — require explicit confirmation
-    // so one call can't silently wipe a whole subtree.
-    if (subtree.length > 1 && req.query.confirm !== 'true') {
-      throw badRequest(
-        `Úkol má ${subtree.length - 1} podúkolů, které budou také smazány. ` +
-          'Zopakujte požadavek s parametrem ?confirm=true.'
-      );
-    }
-
-    const deleteEventIds = subtree.filter((n) => n.gcal_event_id).map((n) => n.gcal_event_id);
+    const confirmed = req.query.confirm === 'true';
     const configured = await isSyncConfigured();
 
-    // Delete, roll up the parent chain, and queue remote cleanup atomically —
-    // the event ids land in the durable outbox in the SAME commit as the local
-    // delete, so a crash can't lose the remote cleanup, and transient Google
-    // failures are retried.
-    await withTransaction(async (tx) => {
+    // Enumerate the subtree, confirm, delete, roll up, and queue remote cleanup
+    // ALL inside one transaction. Enumerating inside the same transaction as the
+    // delete closes the window where a concurrent request could add a child
+    // after the count/confirm but before the cascade removes it.
+    const deletedCount = await withTransaction(async (tx) => {
+      const task = await tx.get('SELECT id, parent_id FROM tasks WHERE id = ?', [id]);
+      if (!task) throw notFound('Úkol nebyl nalezen.');
+
+      const subtree = await tx.all(
+        `WITH RECURSIVE descendants(id) AS (
+           SELECT ?
+           UNION ALL
+           SELECT t.id FROM tasks t JOIN descendants d ON t.parent_id = d.id
+         )
+         SELECT t.id, t.gcal_event_id FROM tasks t JOIN descendants d ON t.id = d.id`,
+        [id]
+      );
+
+      // Deleting a parent cascades to its subtasks — require explicit confirmation.
+      if (subtree.length > 1 && !confirmed) {
+        throw badRequest(
+          `Úkol má ${subtree.length - 1} podúkolů, které budou také smazány. ` +
+            'Zopakujte požadavek s parametrem ?confirm=true.'
+        );
+      }
+
+      const deleteEventIds = subtree.filter((n) => n.gcal_event_id).map((n) => n.gcal_event_id);
+
       await tx.run('DELETE FROM tasks WHERE id = ?', [id]);
 
       const upsertIds = [];
@@ -351,10 +349,12 @@ router.delete(
         upsertIds.push(...(await ancestorIds(tx, task.parent_id)));
       }
       if (configured) await enqueueSyncTargets(tx, { upsertIds, deleteEventIds });
+
+      return subtree.length;
     });
 
     if (configured) await flushOutbox();
-    res.json({ success: true, deleted_id: id, deleted_count: subtree.length });
+    res.json({ success: true, deleted_id: id, deleted_count: deletedCount });
   })
 );
 
