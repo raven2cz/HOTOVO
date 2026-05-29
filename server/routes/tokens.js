@@ -69,12 +69,17 @@ router.delete(
   })
 );
 
-/** Escape HTML so exported Markdown can't execute markup in HTML-enabled renderers. */
+/**
+ * Escape user text for Markdown export: HTML metacharacters (for HTML-enabled
+ * renderers) plus Markdown link/image/code syntax, so a title like
+ * `[x](javascript:...)` or `` `code` `` cannot become an active link/markup.
+ */
 function mdEscape(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+    .replace(/>/g, '&gt;')
+    .replace(/([\\`[\]()!])/g, '\\$1');
 }
 
 /** Neutralise spreadsheet formula injection in exported CSV cells. */

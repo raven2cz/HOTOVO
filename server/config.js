@@ -24,26 +24,18 @@ export const IS_PRODUCTION = APP_ENV === 'production';
 /**
  * Resolve the SQLite file path.
  *
- * Strict test/prod separation. In the test environment the production DB_PATH
- * override is IGNORED entirely — the test DB is always a dedicated, test-named
- * file (TEST_DB_PATH if provided, otherwise repo-local todo-test.db). This is
- * the hard guard against the failure mode that previously wiped real data:
- * tests can never be pointed at (and therefore never unlink) a production DB,
- * regardless of DB_PATH / .env.
+ * Strict test/prod separation. In the test environment the database is HARD-
+ * CODED to a single repo-local file (todo-test.db). DB_PATH / TEST_DB_PATH /
+ * .env are all ignored, so tests can never be pointed at — and therefore never
+ * unlink — a production database, regardless of how the environment is shaped.
+ * This is the definitive guard against the prior data-loss incident.
  */
+const TEST_DB_FILE = 'todo-test.db';
+
 function resolveDbPath() {
   if (IS_TEST) {
-    const testPath = path.resolve(repoRoot, process.env.TEST_DB_PATH || 'todo-test.db');
-    const base = path.basename(testPath);
-    if (!/test/i.test(base)) {
-      throw new Error(
-        `[config] Test database path must contain "test" (got "${base}"). ` +
-          'Refusing to run tests against a possibly-production database.'
-      );
-    }
-    return testPath;
+    return path.join(repoRoot, TEST_DB_FILE);
   }
-
   return path.resolve(repoRoot, process.env.DB_PATH || 'todo.db');
 }
 
