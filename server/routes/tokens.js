@@ -84,6 +84,7 @@ router.delete(
  */
 function mdEscape(value) {
   return String(value ?? '')
+    .replace(/[\r\n]+/g, ' ') // collapse newlines so text can't forge headings/list items
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')

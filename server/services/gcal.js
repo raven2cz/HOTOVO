@@ -30,7 +30,8 @@ export async function getAuthUrl(state) {
   const oauth2Client = await getOAuthClient();
   return oauth2Client.generateAuthUrl({
     access_type: 'offline',
-    scope: ['https://www.googleapis.com/auth/calendar'],
+    // Narrowest scope that supports event insert/patch/delete on the calendar.
+    scope: ['https://www.googleapis.com/auth/calendar.events'],
     prompt: 'consent', // force a refresh_token to be returned on re-auth
     state
   });

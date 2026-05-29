@@ -145,7 +145,10 @@ router.post(
     );
 
     // A new pending child can flip a previously-completed parent back to pending.
-    if (parent_id) await rollupAncestors(db, parent_id);
+    if (parent_id) {
+      await rollupAncestors(db, parent_id);
+      await syncAncestorChain(db, parent_id);
+    }
 
     if (due_date) {
       const created = await db.get('SELECT * FROM tasks WHERE id = ?', [id]);
@@ -273,6 +276,13 @@ router.put(
 
     for (const t of toSync.values()) await safeSync(t);
 
+    // Re-parenting changes the rolled-up status of both the old and new parent
+    // chains; keep their due-dated events in sync too.
+    if (parentChanged) {
+      await syncAncestorChain(db, task.parent_id);
+      if (parent_id) await syncAncestorChain(db, parent_id);
+    }
+
     res.json(await db.get('SELECT * FROM tasks WHERE id = ?', [id]));
   })
 );
@@ -302,7 +312,10 @@ router.delete(
     await db.run('DELETE FROM tasks WHERE id = ?', [id]);
 
     // Removing a child can complete a parent (all remaining children done).
-    if (task.parent_id) await rollupAncestors(db, task.parent_id);
+    if (task.parent_id) {
+      await rollupAncestors(db, task.parent_id);
+      await syncAncestorChain(db, task.parent_id);
+    }
 
     // Remote cleanup only AFTER the local delete succeeded, so a failure here
     // leaves (loggable) orphan events rather than tasks pointing at gone events.
@@ -328,6 +341,19 @@ async function safeDeleteEvent(eventId) {
     await deleteGoogleEvent(eventId);
   } catch (err) {
     console.warn(`[gcal] event delete failed (${eventId}): ${err.message}`);
+  }
+}
+
+/** Re-sync every due-dated ancestor whose rolled-up status may have changed. */
+async function syncAncestorChain(db, startParentId) {
+  const seen = new Set();
+  let pid = startParentId;
+  while (pid && !seen.has(pid)) {
+    seen.add(pid);
+    const ancestor = await db.get('SELECT * FROM tasks WHERE id = ?', [pid]);
+    if (!ancestor) break;
+    if (ancestor.due_date) await safeSync(ancestor);
+    pid = ancestor.parent_id;
   }
 }
 

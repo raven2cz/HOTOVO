@@ -34,6 +34,16 @@ async function initialise() {
   await db.exec('PRAGMA journal_mode = WAL');
   await db.run('PRAGMA foreign_keys = ON');
 
+  // Restrict the DB (and WAL/SHM sidecars) to the owner — it holds task data
+  // plus token/secret material. Best-effort: ignore on platforms without chmod.
+  for (const suffix of ['', '-wal', '-shm']) {
+    try {
+      fs.chmodSync(DB_PATH + suffix, 0o600);
+    } catch {
+      /* file may not exist yet or FS has no POSIX perms */
+    }
+  }
+
   await db.exec(`
     CREATE TABLE IF NOT EXISTS lists (
       id TEXT PRIMARY KEY,

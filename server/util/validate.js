@@ -16,7 +16,9 @@ export function assertEnum(value, allowed, fieldName) {
 }
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
-const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})?$/;
+// A timezone (Z or ±HH:MM) is REQUIRED so the instant is unambiguous regardless
+// of server timezone before it is sent to Google Calendar.
+const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/;
 
 /**
  * Accept a strict calendar date ("YYYY-MM-DD") or a full ISO date-time.
@@ -50,7 +52,9 @@ export function assertDueDate(value, fieldName = 'due_date') {
     }
   }
 
-  throw badRequest(`Pole "${fieldName}" musí být ve formátu YYYY-MM-DD nebo ISO 8601: ${value}`);
+  throw badRequest(
+    `Pole "${fieldName}" musí být YYYY-MM-DD nebo ISO 8601 s časovou zónou (Z/±HH:MM): ${value}`
+  );
 }
 
 export function assertNonEmptyString(value, fieldName) {

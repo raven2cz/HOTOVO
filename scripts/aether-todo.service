@@ -27,6 +27,8 @@ StartLimitBurst=5
 [Service]
 Type=simple
 User=box
+# Files created by the service (DB, WAL, key, token) are owner-only.
+UMask=0077
 WorkingDirectory=/home/box/git/github/todo-list
 # Build the frontend before starting so the SPA is always present.
 ExecStartPre=/usr/bin/npm run build:frontend
