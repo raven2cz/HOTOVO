@@ -63,6 +63,12 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, []);
 
+  // Tag filter is project-specific; reset it when switching projects so a stale
+  // tag (whose dropdown is then hidden) can't leave the list mysteriously empty.
+  useEffect(() => {
+    setTagFilter('all');
+  }, [selectedListId]);
+
   // Theme Sync
   useEffect(() => {
     const root = document.documentElement;

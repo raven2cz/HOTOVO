@@ -106,8 +106,8 @@ export default function TaskItem({
                 </span>
               )}
 
-              {/* Recurrence badge inline */}
-              {task.recurrence && task.recurrence !== 'none' && (
+              {/* Recurrence badge inline (top-level tasks only) */}
+              {!task.parent_id && task.recurrence && task.recurrence !== 'none' && (
                 <span
                   className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-violet-500/10 border border-violet-500/20 text-violet-400 flex items-center gap-1"
                   title={`Opakování: ${recurrenceLabels[task.recurrence] || task.recurrence}`}

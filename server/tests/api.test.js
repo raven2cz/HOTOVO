@@ -219,7 +219,7 @@ test('Backend API Integration Tests Suite', async (t) => {
     assert.ok(dueToday.some((x) => x.title === 'Dnešní úkol'), 'due=today filter works');
   });
 
-  await t.test('recurring task spawns the next occurrence on completion', async () => {
+  await t.test('completing a recurring task rolls it forward (no duplicate)', async () => {
     const create = await (
       await fetch(`${baseUrl}/api/tasks`, {
         method: 'POST',
@@ -229,12 +229,21 @@ test('Backend API Integration Tests Suite', async (t) => {
     ).json();
     assert.strictEqual(create.recurrence, 'daily');
 
-    await fetch(`${baseUrl}/api/tasks/${create.id}`, { method: 'PUT', headers: json(), body: JSON.stringify({ status: 'completed' }) });
+    const done = await (
+      await fetch(`${baseUrl}/api/tasks/${create.id}`, {
+        method: 'PUT',
+        headers: json(),
+        body: JSON.stringify({ status: 'completed' })
+      })
+    ).json();
+
+    // Same task, still pending, due date advanced by one day — no second task.
+    assert.strictEqual(done.id, create.id);
+    assert.strictEqual(done.status, 'pending');
+    assert.strictEqual(done.due_date, '2026-06-02');
 
     const all = await (await fetch(`${baseUrl}/api/tasks?list_id=${listId}`)).json();
-    const next = all.find((x) => x.title === 'Opakovaný' && x.status === 'pending' && x.due_date === '2026-06-02');
-    assert.ok(next, 'a new pending occurrence with due_date +1 day exists');
-    assert.strictEqual(next.recurrence, 'daily');
+    assert.strictEqual(all.filter((x) => x.title === 'Opakovaný').length, 1, 'no duplicate occurrence created');
   });
 
   await t.test('DELETE /api/lists/:id - requires confirm when it has tasks', async () => {

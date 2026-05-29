@@ -238,7 +238,8 @@ router.post(
     assertNonEmptyString(list_id, 'list_id');
     assertEnum(priority, TASK_PRIORITIES, 'priority');
     assertDueDate(due_date);
-    const normalizedRecurrence = assertRecurrence(recurrence) ?? null;
+    // Recurrence applies to top-level tasks only — never store it on a subtask.
+    const normalizedRecurrence = parent_id ? null : assertRecurrence(recurrence) ?? null;
     const normalizedTags = assertTags(tags);
     const tagsJson = normalizedTags && normalizedTags.length ? JSON.stringify(normalizedTags) : null;
 
@@ -357,28 +358,20 @@ router.put(
       if (parentChanged) { parentsToRollup.add(task.parent_id); parentsToRollup.add(parent_id); }
       for (const p of parentsToRollup) if (p) await rollupAncestors(tx, p);
 
-      // Completing a recurring task spawns its next occurrence. Recurrence applies
-      // to TOP-LEVEL tasks only — a recurring subtask would re-open its parent and
-      // muddle the tree, so subtasks don't recur. An idempotency guard prevents a
-      // duplicate when a completed task is reopened and completed again.
-      let spawnedId = null;
+      // Ticking a recurring task doesn't "finish" it — it rolls forward: advance
+      // its due date to the next occurrence and reopen it (resetting its subtask
+      // checklist) instead of completing. This is a single-row update, so there
+      // are no duplicate occurrences and no tree corruption. Recurrence applies to
+      // TOP-LEVEL tasks only (a recurring subtask would muddle its parent).
       if (statusChanged && status === 'completed' && !task.parent_id) {
-        const cur = await tx.get('SELECT * FROM tasks WHERE id = ?', [id]);
+        const cur = await tx.get('SELECT recurrence, due_date FROM tasks WHERE id = ?', [id]);
         const next = nextDueDate(cur.due_date, cur.recurrence);
         if (next) {
-          const existing = await tx.get(
-            `SELECT id FROM tasks WHERE list_id = ? AND parent_id IS NULL AND title = ?
-             AND recurrence = ? AND due_date = ? AND status = 'pending' LIMIT 1`,
-            [cur.list_id, cur.title, cur.recurrence, next]
+          await tx.run(
+            "UPDATE tasks SET status = 'pending', due_date = ?, updated_at = datetime('now') WHERE id = ?",
+            [next, id]
           );
-          if (!existing) {
-            spawnedId = uuidv4();
-            await tx.run(
-              `INSERT INTO tasks (id, list_id, parent_id, title, description, priority, due_date, recurrence, tags)
-               VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
-              [spawnedId, cur.list_id, cur.title, cur.description, cur.priority, next, cur.recurrence, cur.tags]
-            );
-          }
+          await cascadeStatusDown(tx, id, 'pending'); // reset the checklist for next time
         }
       }
 
@@ -389,7 +382,6 @@ router.put(
         const upsertIds = new Set();
         // The edited task is re-synced unless it just lost its due date.
         if (!removingDueDate) upsertIds.add(id);
-        if (spawnedId) upsertIds.add(spawnedId);
         if (statusChanged) {
           for (const d of await descendantIds(tx, id)) upsertIds.add(d);
           for (const a of await ancestorIds(tx, task.parent_id)) upsertIds.add(a);
