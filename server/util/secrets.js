@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
-import { DB_PATH } from '../config.js';
+import { DB_PATH, IS_PRODUCTION } from '../config.js';
 
 /**
  * Symmetric encryption for sensitive settings (OAuth client secret, refresh
@@ -31,12 +31,25 @@ function getKey() {
     return cachedKey;
   }
 
+  if (IS_PRODUCTION) {
+    console.warn(
+      '[secrets] TODO_SECRET_KEY is not set; falling back to a key file next to the ' +
+        'database. For stronger at-rest protection set TODO_SECRET_KEY (or store the ' +
+        'key outside the data directory, e.g. via systemd credentials).'
+    );
+  }
+
   const keyPath = path.join(path.dirname(DB_PATH), '.todo-secret-key');
   if (fs.existsSync(keyPath)) {
     cachedKey = Buffer.from(fs.readFileSync(keyPath, 'utf8').trim(), 'hex');
   } else {
     cachedKey = crypto.randomBytes(32);
     fs.writeFileSync(keyPath, cachedKey.toString('hex'), { mode: 0o600 });
+    try {
+      fs.chmodSync(keyPath, 0o600);
+    } catch {
+      /* non-POSIX FS */
+    }
     console.log(`[secrets] Generated at-rest encryption key: ${keyPath}`);
   }
   return cachedKey;

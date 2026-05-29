@@ -187,6 +187,13 @@ async function seedDefaults(db) {
     ]);
     const tokenFile = path.join(path.dirname(DB_PATH), 'INITIAL_TOKEN.txt');
     fs.writeFileSync(tokenFile, `${rawToken}\n`, { mode: 0o600 });
+    // writeFileSync only applies mode on creation; enforce 0600 even if the
+    // file already existed with weaker permissions.
+    try {
+      fs.chmodSync(tokenFile, 0o600);
+    } catch {
+      /* non-POSIX FS */
+    }
     console.log(
       `[db] Vygenerován výchozí AI agent token. Uložen do: ${tokenFile} (práva 0600).\n` +
         '     Po zkopírování soubor smažte. Další tokeny vytvoříte v Nastavení.'

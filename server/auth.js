@@ -58,25 +58,28 @@ function isSameOrigin(req) {
  */
 export async function requireAuth(req, res, next) {
   try {
+    // Locality is determined independently of the token: a same-origin loopback
+    // request from a trusted host is the local UI even if it also carries a
+    // stored token. (Defeats DNS rebinding via the trusted-host allow-list.)
+    req.isLocalUi = isLoopback(req) && isTrustedHost(req) && isSameOrigin(req);
+
     const authHeader = req.headers.authorization || '';
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
 
     if (token) {
+      // A presented token is always validated; an invalid one is rejected even
+      // from loopback (someone is probing).
       const db = await getDb();
       const record = await db.get(
         'SELECT id, name, created_at FROM api_tokens WHERE token_hash = ?',
         [hashToken(token)]
       );
-      if (!record) {
-        throw unauthorized('Neplatný API token.');
-      }
+      if (!record) throw unauthorized('Neplatný API token.');
       req.agent = record;
       return next();
     }
 
-    // Local UI convenience: trust same-origin loopback requests, but only when
-    // the Host header is an allow-listed local hostname (defeats DNS rebinding).
-    if (isLoopback(req) && isTrustedHost(req) && isSameOrigin(req)) {
+    if (req.isLocalUi) {
       req.agent = { id: 'local-ui', name: 'Local UI' };
       return next();
     }
@@ -88,11 +91,12 @@ export async function requireAuth(req, res, next) {
 }
 
 /**
- * Restrict a route to the local UI (loopback same-origin). Bearer-authenticated
- * agents are rejected — this prevents a compromised agent token from minting a
- * persistent backdoor token or revoking others. Must run after requireAuth.
+ * Restrict a route to the local UI (same-origin loopback). Remote agents are
+ * rejected even with a valid token — this prevents a leaked agent token from
+ * minting backdoor tokens, revoking tokens, or rewriting OAuth config. Locality
+ * is decided by origin, not by whether a token was sent. Must run after requireAuth.
  */
 export function requireLocalUi(req, res, next) {
-  if (req.agent?.id === 'local-ui') return next();
-  next(new ApiError(403, 'Správa tokenů je dostupná pouze z lokálního UI.'));
+  if (req.isLocalUi) return next();
+  next(new ApiError(403, 'Tato akce je dostupná pouze z lokálního UI.'));
 }

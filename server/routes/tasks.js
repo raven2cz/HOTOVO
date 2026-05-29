@@ -171,7 +171,11 @@ router.put(
 
     assertEnum(status, TASK_STATUSES, 'status');
     assertEnum(priority, TASK_PRIORITIES, 'priority');
-    if (due_date !== undefined) assertDueDate(due_date);
+    // Normalize "" (clear the date) to null BEFORE validating, so clearing a
+    // date isn't rejected as an invalid date.
+    const dueDateProvided = due_date !== undefined;
+    const normalizedDueDate = due_date === '' ? null : due_date;
+    if (dueDateProvided) assertDueDate(normalizedDueDate);
 
     const db = await getDb();
     const task = await db.get('SELECT * FROM tasks WHERE id = ?', [id]);
@@ -186,9 +190,6 @@ router.put(
       await assertValidParent(db, effectiveParentId, id, effectiveListId);
     }
 
-    // Treat an empty-string due_date the same as null ("remove the date").
-    const dueDateProvided = due_date !== undefined;
-    const normalizedDueDate = due_date === '' ? null : due_date;
     const removingDueDate = dueDateProvided && normalizedDueDate === null;
 
     const sets = ["updated_at = datetime('now')"];
