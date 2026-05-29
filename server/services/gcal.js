@@ -1,8 +1,9 @@
 import { google } from 'googleapis';
 import { getDb } from '../db.js';
 import { encryptSecret, decryptSecret } from '../util/secrets.js';
+import { PUBLIC_BASE_URL } from '../config.js';
 
-const DEFAULT_REDIRECT_URI = 'http://localhost:3000/api/sync/callback';
+const DEFAULT_REDIRECT_URI = `${PUBLIC_BASE_URL}/api/sync/callback`;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 async function getSetting(db, key) {

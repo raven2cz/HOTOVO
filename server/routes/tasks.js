@@ -188,10 +188,6 @@ router.put(
     const normalizedDueDate = due_date === '' ? null : due_date;
     const removingDueDate = dueDateProvided && normalizedDueDate === null;
 
-    if (removingDueDate && task.gcal_event_id) {
-      await safeDeleteEvent(task.gcal_event_id);
-    }
-
     const sets = ["updated_at = datetime('now')"];
     const params = [];
     const setField = (column, value) => { sets.push(`${column} = ?`); params.push(value); };
@@ -272,6 +268,9 @@ router.put(
       }
     }
 
+    // Remote delete only after the local change is committed (clears gcal_event_id).
+    if (removingDueDate && task.gcal_event_id) await safeDeleteEvent(task.gcal_event_id);
+
     for (const t of toSync.values()) await safeSync(t);
 
     res.json(await db.get('SELECT * FROM tasks WHERE id = ?', [id]));
@@ -300,14 +299,16 @@ router.delete(
       [id]
     );
 
-    for (const node of subtree) {
-      if (node.gcal_event_id) await safeDeleteEvent(node.gcal_event_id);
-    }
-
     await db.run('DELETE FROM tasks WHERE id = ?', [id]);
 
     // Removing a child can complete a parent (all remaining children done).
     if (task.parent_id) await rollupAncestors(db, task.parent_id);
+
+    // Remote cleanup only AFTER the local delete succeeded, so a failure here
+    // leaves (loggable) orphan events rather than tasks pointing at gone events.
+    for (const node of subtree) {
+      if (node.gcal_event_id) await safeDeleteEvent(node.gcal_event_id);
+    }
 
     res.json({ success: true, deleted_id: id, deleted_count: subtree.length });
   })

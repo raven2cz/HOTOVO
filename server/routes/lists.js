@@ -80,12 +80,16 @@ router.delete(
       );
     }
 
-    // Clean up Google Calendar events for the project's tasks before the DB
-    // cascade removes them (best-effort; failures must not block deletion).
+    // Capture the project's synced events, delete the list (DB cascade removes
+    // its tasks), THEN clean up the remote events. Committing the local change
+    // first means a remote-delete failure only leaves loggable orphans.
     const synced = await db.all(
       'SELECT gcal_event_id FROM tasks WHERE list_id = ? AND gcal_event_id IS NOT NULL',
       [id]
     );
+
+    await db.run('DELETE FROM lists WHERE id = ?', [id]);
+
     for (const { gcal_event_id } of synced) {
       try {
         await deleteGoogleEvent(gcal_event_id);
@@ -94,7 +98,6 @@ router.delete(
       }
     }
 
-    await db.run('DELETE FROM lists WHERE id = ?', [id]);
     res.json({ success: true, deleted_id: id, deleted_task_count: taskCount.count });
   })
 );

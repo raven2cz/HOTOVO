@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { getDb } from '../db.js';
 import { requireAuth, requireLocalUi, generateToken, hashToken } from '../auth.js';
-import { asyncHandler, badRequest } from '../util/http.js';
+import { asyncHandler, badRequest, notFound } from '../util/http.js';
 import { assertNonEmptyString } from '../util/validate.js';
 
 const router = express.Router();
@@ -63,7 +63,10 @@ router.delete(
       if (tokenCount.count <= 1) {
         throw badRequest('Nelze smazat poslední token. Vždy musí existovat alespoň jeden.');
       }
-      await db.run('DELETE FROM api_tokens WHERE id = ?', [id]);
+      const result = await db.run('DELETE FROM api_tokens WHERE id = ?', [id]);
+      if (result.changes === 0) {
+        throw notFound('Token nebyl nalezen.');
+      }
       await db.run('COMMIT');
     } catch (err) {
       await db.run('ROLLBACK');
@@ -85,6 +88,14 @@ function mdEscape(value) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/([\\`[\]()!])/g, '\\$1');
+}
+
+/** Format a due date for display, parsing date-only values as LOCAL (no UTC day shift). */
+function formatDueDate(value) {
+  if (!value) return '';
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(value);
+  return d.toLocaleDateString('cs-CZ');
 }
 
 /** Neutralise spreadsheet formula injection in exported CSV cells. */
@@ -116,9 +127,7 @@ router.get(
         const indent = '  '.repeat(depth);
         const checkbox = task.status === 'completed' ? '[x]' : '[ ]';
         const priority = priorityMap[task.priority] || '';
-        const dueDate = task.due_date
-          ? ` 📅 *${new Date(task.due_date).toLocaleDateString('cs-CZ')}*`
-          : '';
+        const dueDate = task.due_date ? ` 📅 *${formatDueDate(task.due_date)}*` : '';
         let line = `${indent}- ${checkbox} ${priority} **${mdEscape(task.title)}**${dueDate}\n`;
         if (task.description) line += `${indent}  *${mdEscape(task.description)}*\n`;
         for (const child of childrenOf(task.id)) line += renderTask(child, depth + 1, seen);

@@ -2,12 +2,15 @@ import express from 'express';
 import crypto from 'crypto';
 
 import { getDb } from '../db.js';
-import { requireAuth } from '../auth.js';
+import { requireAuth, requireLocalUi } from '../auth.js';
 import { asyncHandler } from '../util/http.js';
 import { encryptSecret } from '../util/secrets.js';
+import { PUBLIC_BASE_URL } from '../config.js';
 import { getAuthUrl, handleCallback, fullSync, deleteGoogleEvent } from '../services/gcal.js';
 
 const router = express.Router();
+
+const DEFAULT_REDIRECT_URI = `${PUBLIC_BASE_URL}/api/sync/callback`;
 
 // Retrieve sync settings (never returns the secret itself, only a boolean).
 router.get(
@@ -20,16 +23,18 @@ router.get(
     res.json({
       gcal_client_id: (await get('gcal_client_id')) || '',
       has_client_secret: !!(await get('gcal_client_secret')),
-      gcal_redirect_uri: (await get('gcal_redirect_uri')) || 'http://localhost:3000/api/sync/callback',
+      gcal_redirect_uri: (await get('gcal_redirect_uri')) || DEFAULT_REDIRECT_URI,
       is_connected: !!(await get('gcal_refresh_token'))
     });
   })
 );
 
-// Update Google Calendar credentials.
+// Update Google Calendar credentials (local UI only — agents must not be able
+// to rewrite OAuth client config or the redirect URI).
 router.post(
   '/config',
   requireAuth,
+  requireLocalUi,
   asyncHandler(async (req, res) => {
     const { gcal_client_id, gcal_client_secret, gcal_redirect_uri } = req.body;
     const db = await getDb();
@@ -52,6 +57,7 @@ router.post(
 router.post(
   '/auth-url',
   requireAuth,
+  requireLocalUi,
   asyncHandler(async (req, res) => {
     const db = await getDb();
     const state = crypto.randomBytes(16).toString('hex');
@@ -105,10 +111,12 @@ router.post(
   })
 );
 
-// Disconnect Google Calendar.
+// Disconnect Google Calendar (local UI only — it deletes mirrored events and
+// stored tokens).
 router.post(
   '/disconnect',
   requireAuth,
+  requireLocalUi,
   asyncHandler(async (req, res) => {
     const db = await getDb();
 
