@@ -124,8 +124,15 @@ export default function SettingsModal({ isOpen, onClose }) {
     setSyncing(true);
     setSyncStatus(null);
     try {
-      const data = await api.triggerSync();
-      setSyncStatus(`Synchronizace dokončena. Úspěšně: ${data.stats.successCount}, Chyby: ${data.stats.errorCount}`);
+      const { stats } = await api.triggerSync();
+      if (stats?.skipped) {
+        setSyncStatus('Synchronizace přeskočena – kalendář není připojen.');
+      } else {
+        setSyncStatus(
+          `Synchronizace dokončena. Zpracováno: ${stats?.processed ?? 0}, ` +
+            `úspěšně: ${stats?.success ?? 0}, chyby: ${stats?.failed ?? 0}.`
+        );
+      }
     } catch (err) {
       setError(err.message);
     } finally {

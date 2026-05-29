@@ -11,6 +11,16 @@ async function getSetting(db, key) {
   return row?.value;
 }
 
+/** True only when client credentials AND a refresh token are present. */
+export async function isSyncConfigured() {
+  const db = await getDb();
+  return (
+    !!(await getSetting(db, 'gcal_client_id')) &&
+    !!(await getSetting(db, 'gcal_client_secret')) &&
+    !!(await getSetting(db, 'gcal_refresh_token'))
+  );
+}
+
 // Build an OAuth client from saved (decrypted) credentials.
 export async function getOAuthClient() {
   const db = await getDb();
@@ -144,23 +154,4 @@ export async function deleteGoogleEvent(eventId) {
   } catch (err) {
     if (err.code !== 404 && err.code !== 410) throw err;
   }
-}
-
-// Sync every task that has a due date. Per-task errors are collected, not hidden.
-export async function fullSync() {
-  const db = await getDb();
-  const tasks = await db.all('SELECT * FROM tasks WHERE due_date IS NOT NULL');
-
-  let successCount = 0;
-  const errors = [];
-  for (const task of tasks) {
-    try {
-      await syncTaskToGoogle(task);
-      successCount++;
-    } catch (err) {
-      errors.push({ taskId: task.id, title: task.title, message: err.message });
-    }
-  }
-
-  return { successCount, errorCount: errors.length, errors };
 }

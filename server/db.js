@@ -111,6 +111,20 @@ async function initialise() {
       created_at TEXT DEFAULT (datetime('now'))
     );
 
+    -- Durable queue of pending Google Calendar operations (upsert/delete) with
+    -- retry/backoff. A single serialized drainer is the only writer to Google,
+    -- which prevents duplicate event inserts and makes remote deletes retryable.
+    CREATE TABLE IF NOT EXISTS gcal_outbox (
+      id TEXT PRIMARY KEY,
+      op TEXT NOT NULL,
+      task_id TEXT,
+      event_id TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      next_attempt_at TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_tasks_list_id ON tasks(list_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_parent_id ON tasks(parent_id);
   `);

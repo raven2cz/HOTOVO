@@ -11,11 +11,52 @@ import {
   TASK_STATUSES,
   TASK_PRIORITIES
 } from '../util/validate.js';
-import { syncTaskToGoogle, deleteGoogleEvent } from '../services/gcal.js';
+import { isSyncConfigured } from '../services/gcal.js';
+import { enqueueUpsert, enqueueDelete, flushOutbox } from '../services/gcalOutbox.js';
 
 const router = express.Router();
 
 router.use(requireAuth);
+
+/** Collect a task's ancestor ids (parent chain), bounded against cycles. */
+async function ancestorIds(db, startParentId) {
+  const ids = [];
+  const seen = new Set();
+  let pid = startParentId;
+  while (pid && !seen.has(pid)) {
+    seen.add(pid);
+    ids.push(pid);
+    const a = await db.get('SELECT parent_id FROM tasks WHERE id = ?', [pid]);
+    if (!a) break;
+    pid = a.parent_id;
+  }
+  return ids;
+}
+
+/** Collect a task's descendant ids (excluding itself). */
+async function descendantIds(db, id) {
+  const rows = await db.all(
+    `WITH RECURSIVE d(id) AS (
+       SELECT ?
+       UNION ALL
+       SELECT t.id FROM tasks t JOIN d ON t.parent_id = d.id
+     )
+     SELECT id FROM d WHERE id != ?`,
+    [id, id]
+  );
+  return rows.map((r) => r.id);
+}
+
+/**
+ * Queue Google Calendar work and drain immediately (best-effort). Upserts for
+ * tasks without a due date are dropped by the drainer. No-ops when sync is off.
+ */
+async function scheduleSync({ upsertIds = [], deleteEventIds = [] }) {
+  if (!(await isSyncConfigured())) return;
+  for (const taskId of new Set(upsertIds)) await enqueueUpsert(taskId);
+  for (const eventId of new Set(deleteEventIds)) await enqueueDelete(eventId);
+  await flushOutbox();
+}
 
 /** Throw 400 unless the referenced list exists. */
 async function assertListExists(db, listId) {
@@ -145,15 +186,12 @@ router.post(
     );
 
     // A new pending child can flip a previously-completed parent back to pending.
+    const upsertIds = [id];
     if (parent_id) {
       await rollupAncestors(db, parent_id);
-      await syncAncestorChain(db, parent_id);
+      upsertIds.push(...(await ancestorIds(db, parent_id)));
     }
-
-    if (due_date) {
-      const created = await db.get('SELECT * FROM tasks WHERE id = ?', [id]);
-      await safeSync(created);
-    }
+    await scheduleSync({ upsertIds });
 
     res.status(201).json(await db.get('SELECT * FROM tasks WHERE id = ?', [id]));
   })
@@ -237,47 +275,22 @@ router.put(
       for (const p of parentsToRollup) if (p) await rollupAncestors(tx, p);
     });
 
-    // Sync every due-dated task whose status the cascade/rollup may have
-    // changed (the task itself, its descendants, and its ancestor chain), so
-    // their calendar events don't go stale — not just the edited task.
-    const toSync = new Map();
-    const updated = await db.get('SELECT * FROM tasks WHERE id = ?', [id]);
-    if (updated.due_date) toSync.set(updated.id, updated);
-
+    // Queue calendar sync for every task whose status the cascade/rollup may
+    // have changed (self + descendants + affected ancestor chains), and a
+    // delete for the event detached when a due date is removed. The drainer
+    // (single serialized writer) makes this idempotent and retryable.
+    const upsertIds = new Set([id]);
     if (statusChanged) {
-      const descendants = await db.all(
-        `WITH RECURSIVE d(id) AS (
-           SELECT ?
-           UNION ALL
-           SELECT t.id FROM tasks t JOIN d ON t.parent_id = d.id
-         )
-         SELECT t.* FROM tasks t JOIN d ON t.id = d.id WHERE t.due_date IS NOT NULL`,
-        [id]
-      );
-      for (const t of descendants) toSync.set(t.id, t);
-
-      const seen = new Set();
-      let pid = task.parent_id;
-      while (pid && !seen.has(pid)) {
-        seen.add(pid);
-        const ancestor = await db.get('SELECT * FROM tasks WHERE id = ?', [pid]);
-        if (!ancestor) break;
-        if (ancestor.due_date) toSync.set(ancestor.id, ancestor);
-        pid = ancestor.parent_id;
-      }
+      for (const d of await descendantIds(db, id)) upsertIds.add(d);
+      for (const a of await ancestorIds(db, task.parent_id)) upsertIds.add(a);
     }
-
-    // Remote delete only after the local change is committed (clears gcal_event_id).
-    if (removingDueDate && task.gcal_event_id) await safeDeleteEvent(task.gcal_event_id);
-
-    for (const t of toSync.values()) await safeSync(t);
-
-    // Re-parenting changes the rolled-up status of both the old and new parent
-    // chains; keep their due-dated events in sync too.
     if (parentChanged) {
-      await syncAncestorChain(db, task.parent_id);
-      if (parent_id) await syncAncestorChain(db, parent_id);
+      for (const a of await ancestorIds(db, task.parent_id)) upsertIds.add(a);
+      if (parent_id) for (const a of await ancestorIds(db, parent_id)) upsertIds.add(a);
     }
+    const deleteEventIds = removingDueDate && task.gcal_event_id ? [task.gcal_event_id] : [];
+
+    await scheduleSync({ upsertIds: [...upsertIds], deleteEventIds });
 
     res.json(await db.get('SELECT * FROM tasks WHERE id = ?', [id]));
   })
@@ -317,49 +330,19 @@ router.delete(
     await db.run('DELETE FROM tasks WHERE id = ?', [id]);
 
     // Removing a child can complete a parent (all remaining children done).
+    const upsertIds = [];
     if (task.parent_id) {
       await rollupAncestors(db, task.parent_id);
-      await syncAncestorChain(db, task.parent_id);
+      upsertIds.push(...(await ancestorIds(db, task.parent_id)));
     }
 
-    // Remote cleanup only AFTER the local delete succeeded, so a failure here
-    // leaves (loggable) orphan events rather than tasks pointing at gone events.
-    for (const node of subtree) {
-      if (node.gcal_event_id) await safeDeleteEvent(node.gcal_event_id);
-    }
+    // Queue remote cleanup AFTER the local delete; the event ids live in the
+    // durable outbox, so a transient Google failure is retried, not lost.
+    const deleteEventIds = subtree.filter((n) => n.gcal_event_id).map((n) => n.gcal_event_id);
+    await scheduleSync({ upsertIds, deleteEventIds });
 
     res.json({ success: true, deleted_id: id, deleted_count: subtree.length });
   })
 );
-
-/** Calendar sync is best-effort: failures are logged but never break the request. */
-async function safeSync(task) {
-  try {
-    await syncTaskToGoogle(task);
-  } catch (err) {
-    console.warn(`[gcal] sync failed for task ${task.id}: ${err.message}`);
-  }
-}
-
-async function safeDeleteEvent(eventId) {
-  try {
-    await deleteGoogleEvent(eventId);
-  } catch (err) {
-    console.warn(`[gcal] event delete failed (${eventId}): ${err.message}`);
-  }
-}
-
-/** Re-sync every due-dated ancestor whose rolled-up status may have changed. */
-async function syncAncestorChain(db, startParentId) {
-  const seen = new Set();
-  let pid = startParentId;
-  while (pid && !seen.has(pid)) {
-    seen.add(pid);
-    const ancestor = await db.get('SELECT * FROM tasks WHERE id = ?', [pid]);
-    if (!ancestor) break;
-    if (ancestor.due_date) await safeSync(ancestor);
-    pid = ancestor.parent_id;
-  }
-}
 
 export default router;

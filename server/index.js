@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import { PORT, HOST, CORS_ORIGINS } from './config.js';
 import { getDb } from './db.js';
 import { requireAuth } from './auth.js';
+import { startOutboxProcessor, flushOutbox } from './services/gcalOutbox.js';
 import { errorHandler } from './util/http.js';
 import tasksRouter from './routes/tasks.js';
 import listsRouter from './routes/lists.js';
@@ -67,6 +68,10 @@ async function start() {
     console.log(`Server běží na http://${HOST}:${PORT}`);
     console.log(`API dokumentace: http://${HOST}:${PORT}/api/docs`);
   });
+
+  // Drain anything left queued by a previous run, then retry periodically.
+  flushOutbox();
+  startOutboxProcessor();
 }
 
 start();

@@ -6,6 +6,7 @@ import express from 'express';
 
 import { APP_ENV, DB_PATH } from '../config.js';
 import { getDb } from '../db.js';
+import { enqueueUpsert, enqueueDelete, drainOutbox } from '../services/gcalOutbox.js';
 import { errorHandler } from '../util/http.js';
 import tasksRouter from '../routes/tasks.js';
 import listsRouter from '../routes/lists.js';
@@ -208,6 +209,33 @@ test('Backend API Integration Tests Suite', async (t) => {
     const body = await confirmed.json();
     assert.strictEqual(body.success, true);
     assert.ok(body.deleted_task_count >= 1);
+  });
+
+  await t.test('gcal outbox - dedupes entries and skips when sync is not connected', async () => {
+    const db = await getDb();
+    await db.run('DELETE FROM gcal_outbox');
+
+    await enqueueUpsert('task-xyz');
+    await enqueueUpsert('task-xyz'); // duplicate — should be collapsed
+    await enqueueDelete('event-abc');
+    await enqueueDelete('event-abc'); // duplicate — should be collapsed
+
+    const upserts = await db.get(
+      "SELECT COUNT(*) AS c FROM gcal_outbox WHERE op = 'upsert' AND task_id = 'task-xyz'"
+    );
+    const deletes = await db.get(
+      "SELECT COUNT(*) AS c FROM gcal_outbox WHERE op = 'delete' AND event_id = 'event-abc'"
+    );
+    assert.strictEqual(upserts.c, 1);
+    assert.strictEqual(deletes.c, 1);
+
+    // No Google credentials configured in tests → drain is a no-op, entries stay.
+    const result = await drainOutbox();
+    assert.strictEqual(result.skipped, 'not_connected');
+    const remaining = await db.get('SELECT COUNT(*) AS c FROM gcal_outbox');
+    assert.strictEqual(remaining.c, 2);
+
+    await db.run('DELETE FROM gcal_outbox');
   });
 
   await close();

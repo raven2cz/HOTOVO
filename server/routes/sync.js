@@ -6,7 +6,8 @@ import { requireAuth, requireLocalUi } from '../auth.js';
 import { asyncHandler } from '../util/http.js';
 import { encryptSecret } from '../util/secrets.js';
 import { PUBLIC_BASE_URL } from '../config.js';
-import { getAuthUrl, handleCallback, fullSync, deleteGoogleEvent } from '../services/gcal.js';
+import { getAuthUrl, handleCallback, deleteGoogleEvent } from '../services/gcal.js';
+import { enqueueUpsert, drainOutbox } from '../services/gcalOutbox.js';
 
 const router = express.Router();
 
@@ -110,12 +111,16 @@ router.get(
   })
 );
 
-// Trigger a full calendar sync.
+// Trigger a full calendar sync: queue every due-dated task and drain the outbox.
 router.post(
   '/run',
   requireAuth,
   asyncHandler(async (req, res) => {
-    res.json({ success: true, stats: await fullSync() });
+    const db = await getDb();
+    const dated = await db.all('SELECT id FROM tasks WHERE due_date IS NOT NULL');
+    for (const t of dated) await enqueueUpsert(t.id);
+    const stats = await drainOutbox();
+    res.json({ success: true, stats });
   })
 );
 
@@ -147,6 +152,8 @@ router.post(
       "DELETE FROM settings WHERE key IN ('gcal_refresh_token', 'gcal_access_token', 'gcal_token_expiry')"
     );
     await db.run('DELETE FROM oauth_states');
+    // Drop any queued sync work — credentials are gone, so it can't be applied.
+    await db.run('DELETE FROM gcal_outbox');
     await db.run('UPDATE tasks SET gcal_event_id = NULL, gcal_updated_at = NULL');
 
     res.json({

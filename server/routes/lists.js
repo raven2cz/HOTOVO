@@ -5,7 +5,8 @@ import { getDb } from '../db.js';
 import { requireAuth } from '../auth.js';
 import { asyncHandler, badRequest, notFound } from '../util/http.js';
 import { assertNonEmptyString } from '../util/validate.js';
-import { deleteGoogleEvent } from '../services/gcal.js';
+import { isSyncConfigured } from '../services/gcal.js';
+import { enqueueDelete, flushOutbox } from '../services/gcalOutbox.js';
 
 const router = express.Router();
 
@@ -81,8 +82,8 @@ router.delete(
     }
 
     // Capture the project's synced events, delete the list (DB cascade removes
-    // its tasks), THEN clean up the remote events. Committing the local change
-    // first means a remote-delete failure only leaves loggable orphans.
+    // its tasks), THEN queue the remote deletes in the durable outbox so a
+    // transient Google failure is retried rather than orphaning events.
     const synced = await db.all(
       'SELECT gcal_event_id FROM tasks WHERE list_id = ? AND gcal_event_id IS NOT NULL',
       [id]
@@ -90,12 +91,9 @@ router.delete(
 
     await db.run('DELETE FROM lists WHERE id = ?', [id]);
 
-    for (const { gcal_event_id } of synced) {
-      try {
-        await deleteGoogleEvent(gcal_event_id);
-      } catch (err) {
-        console.warn(`[gcal] event delete failed (${gcal_event_id}): ${err.message}`);
-      }
+    if (synced.length && (await isSyncConfigured())) {
+      for (const { gcal_event_id } of synced) await enqueueDelete(gcal_event_id);
+      await flushOutbox();
     }
 
     res.json({ success: true, deleted_id: id, deleted_task_count: taskCount.count });
