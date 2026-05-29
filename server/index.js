@@ -30,6 +30,16 @@ app.use(
 );
 app.use(express.json());
 
+// Baseline security headers. frame-ancestors/X-Frame-Options stop a malicious
+// site from iframing the local UI to clickjack destructive actions.
+app.use((req, res, next) => {
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
+  next();
+});
+
 // API routes
 app.use('/api/tasks', tasksRouter);
 app.use('/api/lists', listsRouter);
