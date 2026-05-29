@@ -96,7 +96,10 @@ export async function drainOutbox() {
     for (const row of rows) {
       // Claim the row before the (slow) Google call so a concurrent edit during
       // sync enqueues a fresh follow-up instead of being deduped against this row.
-      await db.run('UPDATE gcal_outbox SET in_progress = 1 WHERE id = ?', [row.id]);
+      // If the row was cancelled meanwhile (e.g. a re-added due date deleted this
+      // pending delete), the claim affects 0 rows — skip it, don't execute it.
+      const claim = await db.run("UPDATE gcal_outbox SET in_progress = 1 WHERE id = ? AND in_progress = 0", [row.id]);
+      if (claim.changes !== 1) continue;
       try {
         if (row.op === 'upsert') {
           const task = await db.get('SELECT * FROM tasks WHERE id = ?', [row.task_id]);

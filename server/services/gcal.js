@@ -117,19 +117,20 @@ function buildEventPayload(task) {
   };
 }
 
-/** Find an existing event previously created for this task (by its marker). */
+/**
+ * Find an existing event previously created for this task (by its marker).
+ * An empty result legitimately means "none". Errors are NOT swallowed: a
+ * transient list failure must propagate so the outbox retries — otherwise we'd
+ * fall through to insert and create a duplicate event.
+ */
 async function findEventIdByTask(calendar, taskId) {
-  try {
-    const res = await calendar.events.list({
-      calendarId: 'primary',
-      privateExtendedProperty: `todoTaskId=${taskId}`,
-      maxResults: 1,
-      showDeleted: false
-    });
-    return res.data.items?.[0]?.id || null;
-  } catch {
-    return null;
-  }
+  const res = await calendar.events.list({
+    calendarId: 'primary',
+    privateExtendedProperty: `todoTaskId=${taskId}`,
+    maxResults: 1,
+    showDeleted: false
+  });
+  return res.data.items?.[0]?.id || null;
 }
 
 // Create or update the Google Calendar event mirroring a task. Idempotent: even
@@ -152,8 +153,10 @@ export async function syncTaskToGoogle(task) {
         eventId,
         requestBody: event
       });
+      // Only reattach if the task still has a due date (it may have been cleared
+      // during the patch, in which case the delete outbox will remove the event).
       await db.run(
-        "UPDATE tasks SET gcal_event_id = ?, gcal_updated_at = datetime('now') WHERE id = ?",
+        "UPDATE tasks SET gcal_event_id = ?, gcal_updated_at = datetime('now') WHERE id = ? AND due_date IS NOT NULL",
         [response.data.id, task.id]
       );
       return response.data.id;
