@@ -54,17 +54,26 @@ export default function TaskItem({
             type="checkbox"
             checked={task.status === 'completed'}
             onChange={() => onToggleStatus(task)}
+            aria-label={`Označit úkol "${task.title}" jako ${task.status === 'completed' ? 'nesplněný' : 'splněný'}`}
             className="w-5 h-5 rounded-lg border-2 border-slate-400 dark:border-slate-600 bg-slate-900 checked:bg-indigo-600 checked:border-indigo-600 text-white flex items-center justify-center cursor-pointer transition-all hover:scale-105"
           />
 
           <div className="flex flex-col min-w-0 flex-1">
             {/* Title & Metadata Line */}
             <div className="flex items-center flex-wrap gap-2.5 min-w-0">
-              <span 
+              <span
+                role="button"
+                tabIndex={0}
                 onClick={() => onEdit(task)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onEdit(task);
+                  }
+                }}
                 className={`text-sm font-semibold tracking-wide cursor-pointer select-text truncate ${
-                  task.status === 'completed' 
-                    ? 'line-through text-slate-500 dark:text-slate-500 font-normal' 
+                  task.status === 'completed'
+                    ? 'line-through text-slate-500 dark:text-slate-500 font-normal'
                     : 'text-slate-800 dark:text-slate-200 hover:text-indigo-400'
                 }`}
               >
@@ -80,7 +89,9 @@ export default function TaskItem({
               {subtasks.length > 0 && (
                 <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
-                  <span>{completedSubtasksCount}/{subtasks.length} podúkolů ({subtasksProgressPercent}%)</span>
+                  <span data-testid="subtask-progress">
+                    {completedSubtasksCount}/{subtasks.length} podúkolů ({subtasksProgressPercent}%)
+                  </span>
                 </span>
               )}
 

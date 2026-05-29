@@ -4,51 +4,66 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
+dotenv.config();
+
+import { PORT, HOST, CORS_ORIGINS, APP_ENV } from './config.js';
 import { getDb } from './db.js';
+import { errorHandler } from './util/http.js';
 import tasksRouter from './routes/tasks.js';
 import listsRouter from './routes/lists.js';
 import tokensRouter from './routes/tokens.js';
 import syncRouter from './routes/sync.js';
 import docsRouter from './routes/api-docs.js';
 
-dotenv.config();
-
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+// Restrict CORS to an explicit allow-list. Empty list = same-origin only,
+// which is correct for the SPA served by this same server. (No wildcard.)
+app.use(
+  cors({
+    origin: CORS_ORIGINS.length ? CORS_ORIGINS : false,
+    optionsSuccessStatus: 204
+  })
+);
 app.use(express.json());
 
-// Initialize Database Schema on start
-getDb().then(() => {
-  console.log('Databáze SQLite byla úspěšně načtena a inicializována.');
-}).catch((err) => {
-  console.error('Chyba při inicializaci SQLite databáze:', err);
-});
-
-// API Routes
+// API routes
 app.use('/api/tasks', tasksRouter);
 app.use('/api/lists', listsRouter);
 app.use('/api/tokens', tokensRouter);
 app.use('/api/sync', syncRouter);
 app.use('/api/docs', docsRouter);
 
-// Serve Frontend Static Assets (Production build)
+// Health check (used by process supervisors / systemd watchdogs).
+app.get('/api/health', (req, res) => res.json({ status: 'ok', env: APP_ENV }));
+
+// Unmatched API routes return JSON 404 rather than the SPA shell.
+app.use('/api', (req, res) => res.status(404).json({ error: 'Endpoint nebyl nalezen.' }));
+
+// Serve the built frontend (production) and fall back to index.html for SPA routing.
 const frontendDistPath = path.resolve(__dirname, '../frontend/dist');
 app.use(express.static(frontendDistPath));
+app.get('*', (req, res) => res.sendFile(path.join(frontendDistPath, 'index.html')));
 
-// Fallback to React index.html for Single Page Application routing
-app.get('*', (req, res, next) => {
-  // If it's an API route that didn't match, return 404
-  if (req.path.startsWith('/api')) {
-    return res.status(404).json({ error: 'Endpoint nebyl nalezen' });
+// Central error handler (keeps internal details out of responses).
+app.use(errorHandler);
+
+// Initialise the database BEFORE accepting traffic. A failure here is fatal —
+// running with a broken DB would silently appear healthy otherwise.
+async function start() {
+  try {
+    await getDb();
+    console.log('Databáze SQLite byla úspěšně načtena a inicializována.');
+  } catch (err) {
+    console.error('Chyba při inicializaci databáze, ukončuji proces:', err);
+    process.exit(1);
   }
-  res.sendFile(path.join(frontendDistPath, 'index.html'));
-});
 
-// Start Server
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server běží na adrese http://localhost:${PORT}`);
-  console.log(`API dokumentace pro agenty: http://localhost:${PORT}/api/docs`);
-});
+  app.listen(PORT, HOST, () => {
+    console.log(`Server běží na http://${HOST}:${PORT}`);
+    console.log(`API dokumentace: http://${HOST}:${PORT}/api/docs`);
+  });
+}
+
+start();

@@ -20,14 +20,20 @@
 [Unit]
 Description=Aether Todo-List Service (2026 Webapp)
 After=network.target
+# Stop restarting if the service crashes 5 times within 60s (avoids crash loops).
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
 User=box
 WorkingDirectory=/home/box/git/github/todo-list
+# Build the frontend before starting so the SPA is always present.
+ExecStartPre=/usr/bin/npm run build:frontend
 ExecStart=/usr/bin/node /home/box/git/github/todo-list/server/index.js
-Restart=always
+Restart=on-failure
 RestartSec=5
+# To expose on the LAN, add HOST=0.0.0.0 below AFTER configuring API tokens.
 Environment=PORT=3000 NODE_ENV=production
 
 [Install]

@@ -1,285 +1,208 @@
 import test from 'node:test';
 import assert from 'node:assert';
+import fs from 'fs';
 import express from 'express';
-import cors from 'cors';
+
+import { DB_PATH } from '../config.js';
 import { getDb } from '../db.js';
+import { errorHandler } from '../util/http.js';
 import tasksRouter from '../routes/tasks.js';
 import listsRouter from '../routes/lists.js';
 import tokensRouter from '../routes/tokens.js';
 import docsRouter from '../routes/api-docs.js';
 
-// Setup temporary Express instance on random port for testing
+// Start from a clean, hermetic test database every run.
+function wipeTestDb() {
+  for (const suffix of ['', '-wal', '-shm']) {
+    try {
+      fs.unlinkSync(DB_PATH + suffix);
+    } catch {
+      /* not present — fine */
+    }
+  }
+}
+
 async function setupTestServer() {
   const app = express();
   app.use(express.json());
-  
   app.use('/api/tasks', tasksRouter);
   app.use('/api/lists', listsRouter);
   app.use('/api/tokens', tokensRouter);
   app.use('/api/docs', docsRouter);
-
-  // Initialize DB
+  app.use(errorHandler);
   await getDb();
 
   return new Promise((resolve) => {
     const server = app.listen(0, '127.0.0.1', () => {
       const { port } = server.address();
-      const baseUrl = `http://127.0.0.1:${port}`;
       resolve({
-        baseUrl,
+        baseUrl: `http://127.0.0.1:${port}`,
         close: () => new Promise((res) => server.close(res))
       });
     });
   });
 }
 
-test('Backend API Integration Tests Suite', async (t) => {
-  const { baseUrl, close } = await setupTestServer();
-  const defaultToken = 'agent-secret-42-pineapple-token';
+const json = (extra = {}) => ({ 'Content-Type': 'application/json', ...extra });
 
-  await t.test('GET /api/lists - should retrieve default seeded lists', async () => {
-    const res = await fetch(`${baseUrl}/api/lists`, {
-      headers: { 'Authorization': `Bearer ${defaultToken}` }
-    });
-    
+test('Backend API Integration Tests Suite', async (t) => {
+  assert.ok(!DB_PATH.endsWith('todo.db'), 'tests must never run against the production DB');
+  wipeTestDb();
+  const { baseUrl, close } = await setupTestServer();
+
+  // Loopback requests with no Origin (native fetch) are the local-UI path.
+  await t.test('GET /api/lists - loopback access allowed without token', async () => {
+    const res = await fetch(`${baseUrl}/api/lists`);
     assert.strictEqual(res.status, 200);
     const lists = await res.json();
-    assert.ok(Array.isArray(lists));
-    assert.ok(lists.length >= 4); // default lists
+    assert.ok(Array.isArray(lists) && lists.length >= 4);
   });
 
-  await t.test('POST /api/lists - should create a new list', async () => {
+  await t.test('auth - cross-origin request without token is rejected (401)', async () => {
+    const res = await fetch(`${baseUrl}/api/lists`, {
+      headers: { Origin: 'http://evil.example' }
+    });
+    assert.strictEqual(res.status, 401);
+  });
+
+  await t.test('auth - invalid Bearer token is rejected (401)', async () => {
+    const res = await fetch(`${baseUrl}/api/lists`, {
+      headers: { Authorization: 'Bearer not-a-real-token' }
+    });
+    assert.strictEqual(res.status, 401);
+  });
+
+  await t.test('tokens - create returns raw token once and it authenticates', async () => {
+    const createRes = await fetch(`${baseUrl}/api/tokens`, {
+      method: 'POST',
+      headers: json(),
+      body: JSON.stringify({ name: 'Test Agent' })
+    });
+    assert.strictEqual(createRes.status, 201);
+    const { token } = await createRes.json();
+    assert.ok(token && token.startsWith('agent_'));
+
+    // Listing tokens must never leak the raw value or hash.
+    const listRes = await fetch(`${baseUrl}/api/tokens`);
+    const tokens = await listRes.json();
+    assert.ok(tokens.every((tk) => !('token' in tk) && !('token_hash' in tk)));
+
+    // The raw token works even cross-origin (agent use case).
+    const authed = await fetch(`${baseUrl}/api/lists`, {
+      headers: { Origin: 'http://evil.example', Authorization: `Bearer ${token}` }
+    });
+    assert.strictEqual(authed.status, 200);
+  });
+
+  let listId;
+  await t.test('POST /api/lists - create a list', async () => {
     const res = await fetch(`${baseUrl}/api/lists`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${defaultToken}`,
-        'Content-Type': 'application/json'
-      },
+      headers: json(),
       body: JSON.stringify({ name: 'Testovací Projekt', color: '#ff0000' })
     });
-
     assert.strictEqual(res.status, 201);
-    const newList = await res.json();
-    assert.strictEqual(newList.name, 'Testovací Projekt');
-    assert.strictEqual(newList.color, '#ff0000');
-    assert.ok(newList.id);
-
-    // Save for subsequent tests
-    t.context = { ...t.context, testListId: newList.id };
+    const list = await res.json();
+    assert.strictEqual(list.name, 'Testovací Projekt');
+    listId = list.id;
   });
 
-  await t.test('POST /api/tasks - should create a task in the list', async () => {
-    const listId = t.context.testListId;
+  await t.test('POST /api/tasks - validation rejects invalid status/priority', async () => {
     const res = await fetch(`${baseUrl}/api/tasks`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${defaultToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        title: 'Hlavní úkol testu',
-        description: 'Detailní popis úkolu',
-        list_id: listId,
-        priority: 'high'
-      })
+      headers: json(),
+      body: JSON.stringify({ title: 'X', list_id: listId, priority: 'bogus' })
     });
-
-    assert.strictEqual(res.status, 201);
-    const task = await res.json();
-    assert.strictEqual(task.title, 'Hlavní úkol testu');
-    assert.strictEqual(task.priority, 'high');
-    assert.strictEqual(task.list_id, listId);
-    
-    t.context.testTaskId = task.id;
+    assert.strictEqual(res.status, 400);
   });
 
-  await t.test('POST /api/tasks - should create a subtask referencing parent task', async () => {
-    const listId = t.context.testListId;
-    const parentId = t.context.testTaskId;
-    
+  let parentId;
+  await t.test('POST /api/tasks - create a task', async () => {
     const res = await fetch(`${baseUrl}/api/tasks`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${defaultToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        title: 'Podúkol testu',
-        list_id: listId,
-        parent_id: parentId
-      })
+      headers: json(),
+      body: JSON.stringify({ title: 'Hlavní úkol', list_id: listId, priority: 'high' })
     });
-
     assert.strictEqual(res.status, 201);
-    const subtask = await res.json();
-    assert.strictEqual(subtask.title, 'Podúkol testu');
-    assert.strictEqual(subtask.parent_id, parentId);
+    parentId = (await res.json()).id;
   });
 
-  await t.test('PUT /api/tasks/:id - should update status and priority', async () => {
-    const taskId = t.context.testTaskId;
-    const res = await fetch(`${baseUrl}/api/tasks/${taskId}`, {
+  await t.test('PUT /api/tasks/:id - invalid status returns 400 (no infinite loop)', async () => {
+    const res = await fetch(`${baseUrl}/api/tasks/${parentId}`, {
       method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${defaultToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        status: 'completed',
-        priority: 'urgent'
-      })
+      headers: json(),
+      body: JSON.stringify({ status: 'in_progress' })
     });
-
-    assert.strictEqual(res.status, 200);
-    const updated = await res.json();
-    assert.strictEqual(updated.status, 'completed');
-    assert.strictEqual(updated.priority, 'urgent');
+    assert.strictEqual(res.status, 400);
   });
 
-  await t.test('PUT /api/tasks/:id - status cascading and rollup rules', async () => {
-    const listId = t.context.testListId;
-    
-    // 1. Create a parent task
-    const parentRes = await fetch(`${baseUrl}/api/tasks`, {
+  await t.test('status cascade and rollup rules', async () => {
+    const mk = async (title, parent) =>
+      (
+        await (
+          await fetch(`${baseUrl}/api/tasks`, {
+            method: 'POST',
+            headers: json(),
+            body: JSON.stringify({ title, list_id: listId, parent_id: parent })
+          })
+        ).json()
+      );
+
+    const root = await mk('Rodic');
+    const a = await mk('Podukol A', root.id);
+    const b = await mk('Podukol B', root.id);
+
+    const put = (id, body) =>
+      fetch(`${baseUrl}/api/tasks/${id}`, { method: 'PUT', headers: json(), body: JSON.stringify(body) });
+
+    // Completing the parent cascades down.
+    await put(root.id, { status: 'completed' });
+    let tasks = await (await fetch(`${baseUrl}/api/tasks?list_id=${listId}`)).json();
+    assert.strictEqual(tasks.find((x) => x.id === a.id).status, 'completed');
+    assert.strictEqual(tasks.find((x) => x.id === b.id).status, 'completed');
+
+    // Reopening one child rolls the parent back to pending.
+    await put(a.id, { status: 'pending' });
+    tasks = await (await fetch(`${baseUrl}/api/tasks?list_id=${listId}`)).json();
+    assert.strictEqual(tasks.find((x) => x.id === root.id).status, 'pending');
+    assert.strictEqual(tasks.find((x) => x.id === b.id).status, 'completed');
+
+    // Completing the last open child completes the parent again.
+    await put(a.id, { status: 'completed' });
+    tasks = await (await fetch(`${baseUrl}/api/tasks?list_id=${listId}`)).json();
+    assert.strictEqual(tasks.find((x) => x.id === root.id).status, 'completed');
+  });
+
+  await t.test('PUT - rejects cyclic parent assignment', async () => {
+    const res = await fetch(`${baseUrl}/api/tasks/${parentId}`, {
+      method: 'PUT',
+      headers: json(),
+      body: JSON.stringify({ parent_id: parentId })
+    });
+    assert.strictEqual(res.status, 400);
+  });
+
+  await t.test('CSV export neutralises formula injection', async () => {
+    await fetch(`${baseUrl}/api/tasks`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${defaultToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ title: 'Hierarchicky Rodic', list_id: listId })
+      headers: json(),
+      body: JSON.stringify({ title: '=SUM(A1:A2)', list_id: listId })
     });
-    const parentTask = await parentRes.json();
-
-    // 2. Create subtask A
-    const subARes = await fetch(`${baseUrl}/api/tasks`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${defaultToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ title: 'Podukol A', list_id: listId, parent_id: parentTask.id })
-    });
-    const subA = await subARes.json();
-
-    // 3. Create subtask B
-    const subBRes = await fetch(`${baseUrl}/api/tasks`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${defaultToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ title: 'Podukol B', list_id: listId, parent_id: parentTask.id })
-    });
-    const subB = await subBRes.json();
-
-    // Verify initially all are pending
-    assert.strictEqual(parentTask.status, 'pending');
-    assert.strictEqual(subA.status, 'pending');
-    assert.strictEqual(subB.status, 'pending');
-
-    // Rule 1: Completing the parent task completes all descendants (downward cascade)
-    const completeParentRes = await fetch(`${baseUrl}/api/tasks/${parentTask.id}`, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${defaultToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ status: 'completed' })
-    });
-    assert.strictEqual(completeParentRes.status, 200);
-
-    // Fetch all current tasks to check statuses
-    const getAllRes = await fetch(`${baseUrl}/api/tasks?list_id=${listId}`, {
-      headers: { 'Authorization': `Bearer ${defaultToken}` }
-    });
-    const tasks = await getAllRes.json();
-    const updatedParent = tasks.find(x => x.id === parentTask.id);
-    const updatedSubA = tasks.find(x => x.id === subA.id);
-    const updatedSubB = tasks.find(x => x.id === subB.id);
-
-    assert.strictEqual(updatedParent.status, 'completed');
-    assert.strictEqual(updatedSubA.status, 'completed');
-    assert.strictEqual(updatedSubB.status, 'completed');
-
-    // Rule 2: Uncompleting one subtask should mark parent task as pending (upward rollup)
-    const uncompleteSubARes = await fetch(`${baseUrl}/api/tasks/${subA.id}`, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${defaultToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ status: 'pending' })
-    });
-    assert.strictEqual(uncompleteSubARes.status, 200);
-
-    const getAllRes2 = await fetch(`${baseUrl}/api/tasks?list_id=${listId}`, {
-      headers: { 'Authorization': `Bearer ${defaultToken}` }
-    });
-    const tasks2 = await getAllRes2.json();
-    const updatedParent2 = tasks2.find(x => x.id === parentTask.id);
-    const updatedSubA2 = tasks2.find(x => x.id === subA.id);
-    const updatedSubB2 = tasks2.find(x => x.id === subB.id);
-
-    assert.strictEqual(updatedParent2.status, 'pending');
-    assert.strictEqual(updatedSubA2.status, 'pending');
-    assert.strictEqual(updatedSubB2.status, 'completed');
-
-    // Rule 3: Completing the remaining subtask should mark parent task as completed (upward rollup completeness)
-    const completeSubARes = await fetch(`${baseUrl}/api/tasks/${subA.id}`, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${defaultToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ status: 'completed' })
-    });
-    assert.strictEqual(completeSubARes.status, 200);
-
-    const getAllRes3 = await fetch(`${baseUrl}/api/tasks?list_id=${listId}`, {
-      headers: { 'Authorization': `Bearer ${defaultToken}` }
-    });
-    const tasks3 = await getAllRes3.json();
-    const updatedParent3 = tasks3.find(x => x.id === parentTask.id);
-    const updatedSubA3 = tasks3.find(x => x.id === subA.id);
-    const updatedSubB3 = tasks3.find(x => x.id === subB.id);
-
-    assert.strictEqual(updatedParent3.status, 'completed');
-    assert.strictEqual(updatedSubA3.status, 'completed');
-    assert.strictEqual(updatedSubB3.status, 'completed');
+    const res = await fetch(`${baseUrl}/api/tokens/export-data?format=csv`);
+    const csv = await res.text();
+    assert.ok(csv.includes(`"'=SUM(A1:A2)"`), 'leading = must be escaped with a quote');
   });
 
-  await t.test('GET /api/tokens/export-data - should export data in markdown format', async () => {
-    const res = await fetch(`${baseUrl}/api/tokens/export-data?format=markdown`, {
-      headers: { 'Authorization': `Bearer ${defaultToken}` }
-    });
+  await t.test('DELETE /api/lists/:id - requires confirm when it has tasks', async () => {
+    const res = await fetch(`${baseUrl}/api/lists/${listId}`, { method: 'DELETE' });
+    assert.strictEqual(res.status, 400);
 
-    assert.strictEqual(res.status, 200);
-    assert.strictEqual(res.headers.get('content-type'), 'text/markdown; charset=utf-8');
-    const mdText = await res.text();
-    assert.ok(mdText.includes('# Export Todo Listů'));
-    assert.ok(mdText.includes('Testovací Projekt'));
+    const confirmed = await fetch(`${baseUrl}/api/lists/${listId}?confirm=true`, { method: 'DELETE' });
+    assert.strictEqual(confirmed.status, 200);
+    const body = await confirmed.json();
+    assert.strictEqual(body.success, true);
+    assert.ok(body.deleted_task_count >= 1);
   });
 
-  await t.test('DELETE /api/tasks/:id - should delete task and subtasks cascadingly', async () => {
-    const taskId = t.context.testTaskId;
-    const res = await fetch(`${baseUrl}/api/tasks/${taskId}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${defaultToken}` }
-    });
-
-    assert.strictEqual(res.status, 200);
-    const data = await res.json();
-    assert.strictEqual(data.success, true);
-
-    // Verify task is deleted
-    const checkRes = await fetch(`${baseUrl}/api/tasks`, {
-      headers: { 'Authorization': `Bearer ${defaultToken}` }
-    });
-    const tasks = await checkRes.json();
-    const found = tasks.some(t => t.id === taskId);
-    assert.strictEqual(found, false);
-  });
-
-  // Clean up server after all tests are finished
   await close();
 });

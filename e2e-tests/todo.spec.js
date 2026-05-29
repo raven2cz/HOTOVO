@@ -175,20 +175,19 @@ test.describe('Aether Todo E2E Flow', () => {
     await subtaskInput.press('Enter');
 
     // 7. Verify subtask progress badge is visible on the parent task row showing 0/2 podúkolů (0%)
-    const badge = parentRow.locator('span:has-text("0/2 podúkolů (0%)")');
-    await expect(badge).toBeVisible();
+    const badge = parentRow.locator('[data-testid="subtask-progress"]');
+    await expect(badge).toHaveText('0/2 podúkolů (0%)');
 
-    // 8. Find subtask A row and check it
+    // 8. Find subtask A row and check it (target the checkbox by its accessible name)
     const subtaskARow = page.locator('[id^="task-node-"]', { hasText: 'E2E Subtask A' }).first();
     await expect(subtaskARow).toBeVisible();
-    await subtaskARow.locator('input[type="checkbox"]').click();
+    await page.getByRole('checkbox', { name: /E2E Subtask A/ }).click();
 
     // 9. Verify subtask progress badge updates to 1/2 podúkolů (50%)
-    const badge50 = parentRow.locator('span:has-text("1/2 podúkolů (50%)")');
-    await expect(badge50).toBeVisible();
+    await expect(parentRow.locator('[data-testid="subtask-progress"]')).toHaveText('1/2 podúkolů (50%)');
 
     // 10. Check parent task
-    await parentRow.locator('input[type="checkbox"]').click();
+    await page.getByRole('checkbox', { name: /E2E Cascading Task/ }).click();
 
     // 11. Verify parent task and all subtasks are completed (strike-through)
     await expect(parentRow.locator('span').first()).toHaveClass(/line-through/);
@@ -198,7 +197,6 @@ test.describe('Aether Todo E2E Flow', () => {
     await expect(subtaskBRow.locator('span').first()).toHaveClass(/line-through/);
 
     // 12. Verify badge is updated to 2/2 (100%)
-    const badge100 = parentRow.locator('span:has-text("2/2 podúkolů (100%)")');
-    await expect(badge100).toBeVisible();
+    await expect(parentRow.locator('[data-testid="subtask-progress"]')).toHaveText('2/2 podúkolů (100%)');
   });
 });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { api } from './api';
 import TaskItem from './components/TaskItem';
 import CalendarView from './components/CalendarView';
@@ -35,13 +35,13 @@ export default function App() {
   const [newListColor, setNewListColor] = useState('#6366f1');
   const [isAddingList, setIsAddingList] = useState(false);
 
+  // Data loading status (surfaced to the user instead of failing silently)
+  const [loadError, setLoadError] = useState(null);
+  // Monotonic counter so out-of-order loadData() responses can be discarded
+  const loadSeq = useRef(0);
+
   // App initialization
   useEffect(() => {
-    // Check if token exists in localStorage, otherwise set default
-    if (!localStorage.getItem('agent_api_token')) {
-      localStorage.setItem('agent_api_token', 'agent-secret-42-pineapple-token');
-    }
-
     // Load initial data
     loadData();
 
@@ -69,18 +69,23 @@ export default function App() {
   }, [darkMode]);
 
   const loadData = async () => {
+    const seq = ++loadSeq.current;
     try {
-      const allLists = await api.getLists();
-      const allTasks = await api.getTasks();
+      const [allLists, allTasks] = await Promise.all([api.getLists(), api.getTasks()]);
+      // Ignore this response if a newer load has started in the meantime.
+      if (seq !== loadSeq.current) return;
+      setLoadError(null);
       setLists(allLists);
       setTasks(allTasks);
-      
+
       // Select first list by default if none selected
       if (allLists.length > 0 && !selectedListId) {
         setSelectedListId(allLists[0].id);
       }
     } catch (err) {
+      if (seq !== loadSeq.current) return;
       console.error('Error loading data:', err.message);
+      setLoadError(err.message);
     }
   };
 
@@ -156,7 +161,7 @@ export default function App() {
         title,
         list_id: selectedListId,
         priority: 'medium',
-        due_date: `${dateStr}T12:00:00.000Z`
+        due_date: dateStr // date-only (YYYY-MM-DD); avoids timezone drift
       });
       loadData();
     } catch (err) {
@@ -279,6 +284,7 @@ export default function App() {
             </div>
             <button
               onClick={() => setDarkMode(!darkMode)}
+              aria-label={darkMode ? 'Přepnout na světlý režim' : 'Přepnout na tmavý režim'}
               className="p-2 rounded-xl border border-border-light dark:border-border-dark hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
             >
               {darkMode ? <Sun size={15} /> : <Moon size={15} />}
@@ -289,8 +295,9 @@ export default function App() {
           <div className="flex flex-col gap-2.5">
             <div className="flex items-center justify-between px-1">
               <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Moje Projekty</span>
-              <button 
+              <button
                 onClick={() => setIsAddingList(!isAddingList)}
+                aria-label="Přidat nový projekt"
                 className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
               >
                 <Plus size={14} />
@@ -374,6 +381,7 @@ export default function App() {
                           e.stopPropagation();
                           handleDeleteList(list.id);
                         }}
+                        aria-label={`Smazat projekt ${list.name}`}
                         className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-red-400 transition-opacity"
                       >
                         <Trash2 size={12} />
@@ -417,7 +425,23 @@ export default function App() {
 
         {/* Main Content Area */}
         <main className="flex-1 flex flex-col gap-6 overflow-y-auto pr-1">
-          
+
+          {/* Data load error banner */}
+          {loadError && (
+            <div
+              role="alert"
+              className="flex items-center justify-between gap-3 p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm"
+            >
+              <span>Nepodařilo se načíst data: {loadError}</span>
+              <button
+                onClick={loadData}
+                className="font-bold px-3 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/30 transition-colors"
+              >
+                Zkusit znovu
+              </button>
+            </div>
+          )}
+
           {/* Top Panel Actions */}
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div>
@@ -462,6 +486,7 @@ export default function App() {
               {/* Mobile Sidebar Trigger Settings button */}
               <button
                 onClick={() => setIsSettingsOpen(true)}
+                aria-label="Otevřít nastavení"
                 className="md:hidden p-2.5 rounded-xl bg-slate-900 border border-border-dark hover:bg-slate-800 text-slate-400"
               >
                 <Settings size={16} />
@@ -734,7 +759,8 @@ export default function App() {
                       value={editingTask.due_date ? editingTask.due_date.split('T')[0] : ''}
                       onChange={(e) => {
                         const val = e.target.value;
-                        setEditingTask({ ...editingTask, due_date: val ? `${val}T12:00:00.000Z` : null });
+                        // Store date-only (YYYY-MM-DD) to avoid timezone drift.
+                        setEditingTask({ ...editingTask, due_date: val || null });
                       }}
                       className="bg-slate-200 dark:bg-slate-900 border border-border-light dark:border-border-dark rounded-xl px-3.5 py-2 text-sm focus:outline-none text-slate-600 dark:text-slate-300"
                     />

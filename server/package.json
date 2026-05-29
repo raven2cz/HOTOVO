@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "test": "node --test tests/api.test.js"
+    "test": "NODE_ENV=test node --test tests/api.test.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

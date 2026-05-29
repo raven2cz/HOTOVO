@@ -56,6 +56,7 @@ export default function CommandPalette({
     }
 
     const totalResults = filteredItems.length;
+    if (totalResults === 0) return; // nothing to navigate; avoids modulo-by-zero (NaN)
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setSelectedIndex((prev) => (prev + 1) % totalResults);

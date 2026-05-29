@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { api } from '../api';
+import { api, TOKEN_KEY } from '../api';
 import { X, Key, Calendar, Download, RefreshCw, LogOut, Check, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -84,15 +84,20 @@ export default function SettingsModal({ isOpen, onClose }) {
         `width=${width},height=${height},top=${top},left=${left}`
       );
 
-      // Listen for callback success message
+      // Listen for the callback success message. Only trust messages from our
+      // own origin and the popup we opened (ignore spoofed cross-origin posts).
       const handleMessage = async (event) => {
-        if (event.data === 'gcal_auth_success') {
-          setSyncStatus('Úspěšně připojeno k Google Kalendáři.');
-          await loadConfig();
-          window.removeEventListener('message', handleMessage);
-        }
+        if (event.origin !== window.location.origin) return;
+        if (popup && event.source !== popup) return;
+        if (event.data !== 'gcal_auth_success') return;
+        window.removeEventListener('message', handleMessage);
+        clearTimeout(timeout);
+        setSyncStatus('Úspěšně připojeno k Google Kalendáři.');
+        await loadConfig();
       };
       window.addEventListener('message', handleMessage);
+      // Safety net: always detach the listener after the OAuth window lifetime.
+      const timeout = setTimeout(() => window.removeEventListener('message', handleMessage), 5 * 60 * 1000);
     } catch (err) {
       setError(err.message);
     }
@@ -150,11 +155,10 @@ export default function SettingsModal({ isOpen, onClose }) {
 
   const handleExportData = async (format) => {
     try {
-      const token = localStorage.getItem('agent_api_token') || 'agent-secret-42-pineapple-token';
+      // Same-origin download: only attach a token if the user configured one.
+      const token = localStorage.getItem(TOKEN_KEY);
       const res = await fetch(`/api/tokens/export-data?format=${format}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
       });
       if (!res.ok) throw new Error('Nelze exportovat data');
 

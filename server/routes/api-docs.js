@@ -290,7 +290,7 @@ router.get('/', (req, res) => {
         <h2>Jak se připojit?</h2>
         <p>Všechny požadavky musí obsahovat hlavičku:</p>
         <pre>Authorization: Bearer [Váš_API_Token]</pre>
-        <p>Výchozí token pro testování: <code>agent-secret-42-pineapple-token</code></p>
+        <p>Token si vygenerujte v aplikaci v sekci <strong>Nastavení &rarr; AI Agenti (API)</strong>. Při prvním spuštění serveru se navíc do konzole jednorázově vypíše výchozí token.</p>
 
         <h2>Základní Endpointy</h2>
         <div class="endpoint"><span class="method">GET</span> <code>/api/tasks</code> - Výpis všech úkolů</div>

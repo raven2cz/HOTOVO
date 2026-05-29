@@ -1,285 +1,256 @@
 import express from 'express';
-import { getDb } from '../db.js';
 import { v4 as uuidv4 } from 'uuid';
+
+import { getDb } from '../db.js';
+import { requireAuth } from '../auth.js';
+import { asyncHandler, badRequest, notFound } from '../util/http.js';
+import {
+  assertEnum,
+  assertDueDate,
+  assertNonEmptyString,
+  TASK_STATUSES,
+  TASK_PRIORITIES
+} from '../util/validate.js';
 import { syncTaskToGoogle, deleteGoogleEvent } from '../services/gcal.js';
 
 const router = express.Router();
 
-// Middleware to authenticate API requests via Bearer token
-export async function authenticateToken(req, res, next) {
-  const authHeader = req.headers.authorization;
-  const token = authHeader && authHeader.split(' ')[1];
+router.use(requireAuth);
 
-  if (!token) {
-    // If no token is provided, check if it's a browser request (e.g. from local UI).
-    // For local Pi-4 convenience, we allow it if no API tokens are configured
-    // or if the request is from localhost. But to be safe, we allow it by default,
-    // and if a token is present, we validate it.
-    return next();
-  }
-
-  const db = await getDb();
-  const tokenRecord = await db.get('SELECT * FROM api_tokens WHERE token = ?', [token]);
-
-  if (!tokenRecord) {
-    return res.status(403).json({ error: 'Neplatny API token' });
-  }
-
-  req.agent = tokenRecord;
-  next();
+/** Throw 400 unless the referenced list exists. */
+async function assertListExists(db, listId) {
+  const list = await db.get('SELECT id FROM lists WHERE id = ?', [listId]);
+  if (!list) throw badRequest('Projekt/List neexistuje.');
 }
 
-// Get all tasks (with filters: list_id, status, priority, due_date)
-router.get('/', authenticateToken, async (req, res) => {
-  try {
-    const { list_id, status, priority, due_date } = req.query;
-    const db = await getDb();
+/**
+ * Validate a candidate parent for `taskId`. Ensures the parent exists and that
+ * assigning it would not create a cycle (parent === self, or parent is a
+ * descendant of the task). A cyclic tree would hang the recursive cascade.
+ */
+async function assertValidParent(db, parentId, taskId) {
+  if (parentId === null || parentId === undefined) return;
+  if (parentId === taskId) throw badRequest('Úkol nemůže být svým vlastním rodičem.');
 
+  const parent = await db.get('SELECT id FROM tasks WHERE id = ?', [parentId]);
+  if (!parent) throw badRequest('Rodičovský úkol neexistuje.');
+
+  if (taskId) {
+    const cycle = await db.get(
+      `WITH RECURSIVE descendants(id) AS (
+         SELECT ?
+         UNION ALL
+         SELECT t.id FROM tasks t JOIN descendants d ON t.parent_id = d.id
+       )
+       SELECT 1 AS hit FROM descendants WHERE id = ? LIMIT 1`,
+      [taskId, parentId]
+    );
+    if (cycle) throw badRequest('Nelze nastavit potomka jako rodiče (vznikl by cyklus).');
+  }
+}
+
+/**
+ * Propagate a status change through the task tree inside an open transaction.
+ * Downward: all descendants inherit the new status. Upward: each ancestor is
+ * recomputed as completed iff all its direct children are completed. The walk
+ * always advances to parent.parent_id and is bounded by a visited set, so it
+ * can never loop regardless of the status value.
+ */
+async function propagateStatus(db, taskId, newStatus, parentId) {
+  await db.run(
+    `WITH RECURSIVE descendants(id) AS (
+       SELECT ?
+       UNION ALL
+       SELECT t.id FROM tasks t JOIN descendants d ON t.parent_id = d.id
+     )
+     UPDATE tasks SET status = ?, updated_at = datetime('now') WHERE id IN descendants`,
+    [taskId, newStatus]
+  );
+
+  const visited = new Set([taskId]);
+  let currentParentId = parentId;
+  while (currentParentId && !visited.has(currentParentId)) {
+    visited.add(currentParentId);
+    const parent = await db.get('SELECT parent_id FROM tasks WHERE id = ?', [currentParentId]);
+    if (!parent) break;
+
+    const incomplete = await db.get(
+      "SELECT COUNT(*) AS count FROM tasks WHERE parent_id = ? AND status != 'completed'",
+      [currentParentId]
+    );
+    const rolledUpStatus = incomplete.count === 0 ? 'completed' : 'pending';
+    await db.run(
+      "UPDATE tasks SET status = ?, updated_at = datetime('now') WHERE id = ?",
+      [rolledUpStatus, currentParentId]
+    );
+
+    currentParentId = parent.parent_id;
+  }
+}
+
+// List tasks (optionally filtered by list_id / status / priority / due_date).
+router.get(
+  '/',
+  asyncHandler(async (req, res) => {
+    const { list_id, status, priority, due_date } = req.query;
+    assertEnum(status, TASK_STATUSES, 'status');
+    assertEnum(priority, TASK_PRIORITIES, 'priority');
+
+    const db = await getDb();
     let query = 'SELECT * FROM tasks WHERE 1=1';
     const params = [];
 
-    if (list_id) {
-      query += ' AND list_id = ?';
-      params.push(list_id);
-    }
-    if (status) {
-      query += ' AND status = ?';
-      params.push(status);
-    }
-    if (priority) {
-      query += ' AND priority = ?';
-      params.push(priority);
-    }
-    if (due_date) {
-      query += ' AND date(due_date) = date(?)';
-      params.push(due_date);
-    }
+    if (list_id) { query += ' AND list_id = ?'; params.push(list_id); }
+    if (status) { query += ' AND status = ?'; params.push(status); }
+    if (priority) { query += ' AND priority = ?'; params.push(priority); }
+    if (due_date) { query += ' AND date(due_date) = date(?)'; params.push(due_date); }
 
     query += ' ORDER BY created_at ASC';
-    const tasks = await db.all(query, params);
-    res.json(tasks);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+    res.json(await db.all(query, params));
+  })
+);
 
-// Create a new task
-router.post('/', authenticateToken, async (req, res) => {
-  try {
+// Create a task (or subtask when parent_id is provided).
+router.post(
+  '/',
+  asyncHandler(async (req, res) => {
     const { title, description, list_id, parent_id, priority, due_date } = req.body;
 
-    if (!title || !list_id) {
-      return res.status(400).json({ error: 'Title a list_id jsou povinne udaje' });
-    }
+    assertNonEmptyString(title, 'title');
+    assertNonEmptyString(list_id, 'list_id');
+    assertEnum(priority, TASK_PRIORITIES, 'priority');
+    assertDueDate(due_date);
 
     const db = await getDb();
+    await assertListExists(db, list_id);
+    await assertValidParent(db, parent_id ?? null, null);
+
     const id = uuidv4();
+    await db.run(
+      `INSERT INTO tasks (id, list_id, parent_id, title, description, priority, due_date)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [id, list_id, parent_id || null, title, description || '', priority || 'medium', due_date || null]
+    );
 
-    // Verify parent task exists if parent_id is provided
-    if (parent_id) {
-      const parent = await db.get('SELECT * FROM tasks WHERE id = ?', [parent_id]);
-      if (!parent) {
-        return res.status(400).json({ error: 'Rodicovsky ukol neexistuje' });
-      }
-    }
-
-    // Verify list exists
-    const list = await db.get('SELECT * FROM lists WHERE id = ?', [list_id]);
-    if (!list) {
-      return res.status(400).json({ error: 'Projekt/List neexistuje' });
-    }
-
-    const query = `
-      INSERT INTO tasks (id, list_id, parent_id, title, description, priority, due_date)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `;
-    const params = [
-      id,
-      list_id,
-      parent_id || null,
-      title,
-      description || '',
-      priority || 'medium',
-      due_date || null
-    ];
-
-    await db.run(query, params);
-    const newTask = await db.get('SELECT * FROM tasks WHERE id = ?', [id]);
-
-    // Async sync to Google Calendar if due_date is present
     if (due_date) {
-      try {
-        await syncTaskToGoogle(newTask);
-      } catch (err) {
-        console.log('Automaticka synchronizace pri vytvoreni selhala:', err.message);
-      }
+      const created = await db.get('SELECT * FROM tasks WHERE id = ?', [id]);
+      await safeSync(created);
     }
 
-    // Return the updated task (which might contain the gcal_event_id now)
-    const finalTask = await db.get('SELECT * FROM tasks WHERE id = ?', [id]);
-    res.status(201).json(finalTask);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+    res.status(201).json(await db.get('SELECT * FROM tasks WHERE id = ?', [id]));
+  })
+);
 
-// Update an existing task
-router.put('/:id', authenticateToken, async (req, res) => {
-  try {
+// Update a task.
+router.put(
+  '/:id',
+  asyncHandler(async (req, res) => {
     const { id } = req.params;
     const { title, description, status, priority, due_date, list_id, parent_id, gcal_event_id } = req.body;
 
+    assertEnum(status, TASK_STATUSES, 'status');
+    assertEnum(priority, TASK_PRIORITIES, 'priority');
+    if (due_date !== undefined) assertDueDate(due_date);
+
     const db = await getDb();
     const task = await db.get('SELECT * FROM tasks WHERE id = ?', [id]);
+    if (!task) throw notFound('Úkol nebyl nalezen.');
 
-    if (!task) {
-      return res.status(404).json({ error: 'Ukol nebyl nalezen' });
+    if (list_id !== undefined) await assertListExists(db, list_id);
+    if (parent_id !== undefined) await assertValidParent(db, parent_id, id);
+
+    // Treat an empty-string due_date the same as null ("remove the date").
+    const dueDateProvided = due_date !== undefined;
+    const normalizedDueDate = due_date === '' ? null : due_date;
+    const removingDueDate = dueDateProvided && normalizedDueDate === null;
+
+    if (removingDueDate && task.gcal_event_id) {
+      await safeDeleteEvent(task.gcal_event_id);
     }
 
-    // If due_date was removed, delete corresponding Google Calendar event if it exists
-    if (due_date === null && task.gcal_event_id) {
-      try {
-        await deleteGoogleEvent(task.gcal_event_id);
-      } catch (err) {
-        console.log('Chyba pri mazani eventu z Google kalendare:', err.message);
-      }
-    }
-
-    // Build dynamics update query
-    let query = 'UPDATE tasks SET updated_at = datetime(\'now\')';
+    const sets = ["updated_at = datetime('now')"];
     const params = [];
+    const setField = (column, value) => { sets.push(`${column} = ?`); params.push(value); };
 
-    if (title !== undefined) {
-      query += ', title = ?';
-      params.push(title);
-    }
-    if (description !== undefined) {
-      query += ', description = ?';
-      params.push(description);
-    }
-    if (status !== undefined) {
-      query += ', status = ?';
-      params.push(status);
-    }
-    if (priority !== undefined) {
-      query += ', priority = ?';
-      params.push(priority);
-    }
-    if (due_date !== undefined) {
-      query += ', due_date = ?';
-      params.push(due_date);
-    }
-    if (list_id !== undefined) {
-      query += ', list_id = ?';
-      params.push(list_id);
-    }
-    if (parent_id !== undefined) {
-      query += ', parent_id = ?';
-      params.push(parent_id);
-    }
-    if (gcal_event_id !== undefined) {
-      query += ', gcal_event_id = ?';
-      params.push(gcal_event_id);
-    }
+    if (title !== undefined) { assertNonEmptyString(title, 'title'); setField('title', title); }
+    if (description !== undefined) setField('description', description);
+    if (status !== undefined) setField('status', status);
+    if (priority !== undefined) setField('priority', priority);
+    if (dueDateProvided) setField('due_date', normalizedDueDate);
+    if (list_id !== undefined) setField('list_id', list_id);
+    if (parent_id !== undefined) setField('parent_id', parent_id);
+    if (gcal_event_id !== undefined) setField('gcal_event_id', gcal_event_id);
+    if (removingDueDate) sets.push('gcal_event_id = NULL', 'gcal_updated_at = NULL');
 
-    // Reset Google Calendar event if due_date was removed
-    if (due_date === null) {
-      query += ', gcal_event_id = NULL, gcal_updated_at = NULL';
-    }
-
-    query += ' WHERE id = ?';
-    params.push(id);
-
-    await db.run(query, params);
-
-    // If status changed, perform cascading and rollup updates
     const statusChanged = status !== undefined && status !== task.status;
-    if (statusChanged) {
-      // 1. Downwards cascade: update all descendants to match the new status
-      await db.run(`
-        WITH RECURSIVE descendants(id) AS (
-          SELECT ?
-          UNION ALL
-          SELECT t.id FROM tasks t JOIN descendants d ON t.parent_id = d.id
-        )
-        UPDATE tasks 
-        SET status = ?, updated_at = datetime('now') 
-        WHERE id IN descendants
-      `, [id, status]);
 
-      // 2. Upwards rollup: check and update parent / ancestor statuses
-      let currentParentId = parent_id !== undefined ? parent_id : task.parent_id;
-      while (currentParentId) {
-        const parent = await db.get('SELECT * FROM tasks WHERE id = ?', [currentParentId]);
-        if (!parent) break;
-
-        if (status === 'pending') {
-          // If a subtask is pending, the parent MUST be pending too
-          await db.run('UPDATE tasks SET status = \'pending\', updated_at = datetime(\'now\') WHERE id = ?', [currentParentId]);
-          currentParentId = parent.parent_id;
-        } else if (status === 'completed') {
-          // If a subtask is completed, parent is completed if and only if all its subtasks are completed
-          const pendingCountResult = await db.get(
-            'SELECT COUNT(*) as count FROM tasks WHERE parent_id = ? AND status = \'pending\'',
-            [currentParentId]
-          );
-          if (pendingCountResult.count === 0) {
-            await db.run('UPDATE tasks SET status = \'completed\', updated_at = datetime(\'now\') WHERE id = ?', [currentParentId]);
-          } else {
-            await db.run('UPDATE tasks SET status = \'pending\', updated_at = datetime(\'now\') WHERE id = ?', [currentParentId]);
-          }
-          currentParentId = parent.parent_id;
-        }
+    // Apply the primary update and any status propagation atomically.
+    await db.run('BEGIN');
+    try {
+      await db.run(`UPDATE tasks SET ${sets.join(', ')} WHERE id = ?`, [...params, id]);
+      if (statusChanged) {
+        const effectiveParentId = parent_id !== undefined ? parent_id : task.parent_id;
+        await propagateStatus(db, id, status, effectiveParentId);
       }
+      await db.run('COMMIT');
+    } catch (err) {
+      await db.run('ROLLBACK');
+      throw err;
     }
 
-    const updatedTask = await db.get('SELECT * FROM tasks WHERE id = ?', [id]);
+    const updated = await db.get('SELECT * FROM tasks WHERE id = ?', [id]);
+    if (updated.due_date) await safeSync(updated);
 
-    // Async sync to Google Calendar if due_date is present (or updated)
-    if (updatedTask.due_date) {
-      try {
-        await syncTaskToGoogle(updatedTask);
-      } catch (err) {
-        console.log('Automaticka synchronizace pri uprave selhala:', err.message);
-      }
-    }
+    res.json(await db.get('SELECT * FROM tasks WHERE id = ?', [id]));
+  })
+);
 
-    // Return latest task state
-    const finalTask = await db.get('SELECT * FROM tasks WHERE id = ?', [id]);
-    res.json(finalTask);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Delete a task (cascades automatically to subtasks via DB schema)
-router.delete('/:id', authenticateToken, async (req, res) => {
-  try {
+// Delete a task and (via ON DELETE CASCADE) its whole subtree.
+router.delete(
+  '/:id',
+  asyncHandler(async (req, res) => {
     const { id } = req.params;
     const db = await getDb();
-    
-    // Find task first to check for Google Calendar Event ID
-    const task = await db.get('SELECT * FROM tasks WHERE id = ?', [id]);
 
-    if (!task) {
-      return res.status(404).json({ error: 'Ukol nebyl nalezen' });
-    }
+    const task = await db.get('SELECT id FROM tasks WHERE id = ?', [id]);
+    if (!task) throw notFound('Úkol nebyl nalezen.');
 
-    // Delete Google Calendar event if it exists
-    if (task.gcal_event_id) {
-      try {
-        await deleteGoogleEvent(task.gcal_event_id);
-      } catch (err) {
-        console.log('Chyba pri mazani eventu pri odstraneni ukolu:', err.message);
-      }
+    // Collect the whole subtree so we can clean up calendar events and report
+    // exactly how many tasks the cascade will remove.
+    const subtree = await db.all(
+      `WITH RECURSIVE descendants(id) AS (
+         SELECT ?
+         UNION ALL
+         SELECT t.id FROM tasks t JOIN descendants d ON t.parent_id = d.id
+       )
+       SELECT t.id, t.gcal_event_id FROM tasks t JOIN descendants d ON t.id = d.id`,
+      [id]
+    );
+
+    for (const node of subtree) {
+      if (node.gcal_event_id) await safeDeleteEvent(node.gcal_event_id);
     }
 
     await db.run('DELETE FROM tasks WHERE id = ?', [id]);
-    res.json({ success: true, message: 'Ukol byl smazan', deleted_id: id });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+    res.json({ success: true, deleted_id: id, deleted_count: subtree.length });
+  })
+);
 
+/** Calendar sync is best-effort: failures are logged but never break the request. */
+async function safeSync(task) {
+  try {
+    await syncTaskToGoogle(task);
+  } catch (err) {
+    console.warn(`[gcal] sync failed for task ${task.id}: ${err.message}`);
+  }
+}
+
+async function safeDeleteEvent(eventId) {
+  try {
+    await deleteGoogleEvent(eventId);
+  } catch (err) {
+    console.warn(`[gcal] event delete failed (${eventId}): ${err.message}`);
+  }
+}
 
 export default router;

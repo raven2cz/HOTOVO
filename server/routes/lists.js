@@ -1,91 +1,87 @@
 import express from 'express';
-import { getDb } from '../db.js';
 import { v4 as uuidv4 } from 'uuid';
-import { authenticateToken } from './tasks.js';
+
+import { getDb } from '../db.js';
+import { requireAuth } from '../auth.js';
+import { asyncHandler, badRequest, notFound } from '../util/http.js';
+import { assertNonEmptyString } from '../util/validate.js';
 
 const router = express.Router();
 
-// Get all lists
-router.get('/', authenticateToken, async (req, res) => {
-  try {
-    const db = await getDb();
-    const lists = await db.all('SELECT * FROM lists ORDER BY name ASC');
-    res.json(lists);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+router.use(requireAuth);
 
-// Create a new list
-router.post('/', authenticateToken, async (req, res) => {
-  try {
+// List all projects.
+router.get(
+  '/',
+  asyncHandler(async (req, res) => {
+    const db = await getDb();
+    res.json(await db.all('SELECT * FROM lists ORDER BY name ASC'));
+  })
+);
+
+// Create a project.
+router.post(
+  '/',
+  asyncHandler(async (req, res) => {
     const { name, color } = req.body;
-    if (!name) {
-      return res.status(400).json({ error: 'Nazev listu je povinny' });
-    }
+    assertNonEmptyString(name, 'name');
 
     const db = await getDb();
     const id = uuidv4();
-    await db.run(
-      'INSERT INTO lists (id, name, color) VALUES (?, ?, ?)',
-      [id, name, color || '#6366f1']
-    );
+    await db.run('INSERT INTO lists (id, name, color) VALUES (?, ?, ?)', [
+      id,
+      name,
+      color || '#6366f1'
+    ]);
+    res.status(201).json(await db.get('SELECT * FROM lists WHERE id = ?', [id]));
+  })
+);
 
-    const newList = await db.get('SELECT * FROM lists WHERE id = ?', [id]);
-    res.status(201).json(newList);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Update a list
-router.put('/:id', authenticateToken, async (req, res) => {
-  try {
+// Update a project.
+router.put(
+  '/:id',
+  asyncHandler(async (req, res) => {
     const { id } = req.params;
     const { name, color } = req.body;
 
     const db = await getDb();
     const list = await db.get('SELECT * FROM lists WHERE id = ?', [id]);
+    if (!list) throw notFound('List nebyl nalezen.');
+    if (name !== undefined) assertNonEmptyString(name, 'name');
 
-    if (!list) {
-      return res.status(404).json({ error: 'List nebyl nalezen' });
-    }
+    await db.run('UPDATE lists SET name = ?, color = ? WHERE id = ?', [
+      name ?? list.name,
+      color !== undefined ? color : list.color,
+      id
+    ]);
+    res.json(await db.get('SELECT * FROM lists WHERE id = ?', [id]));
+  })
+);
 
-    let query = 'UPDATE lists SET name = ?';
-    const params = [name || list.name];
-
-    if (color !== undefined) {
-      query += ', color = ?';
-      params.push(color);
-    }
-
-    query += ' WHERE id = ?';
-    params.push(id);
-
-    await db.run(query, params);
-    const updatedList = await db.get('SELECT * FROM lists WHERE id = ?', [id]);
-    res.json(updatedList);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Delete a list
-router.delete('/:id', authenticateToken, async (req, res) => {
-  try {
+// Delete a project and all its tasks (cascade). Requires explicit confirmation
+// to avoid accidental destructive calls from agents; the count of affected
+// tasks is returned so the caller knows the blast radius.
+router.delete(
+  '/:id',
+  asyncHandler(async (req, res) => {
     const { id } = req.params;
     const db = await getDb();
-    const list = await db.get('SELECT * FROM lists WHERE id = ?', [id]);
 
-    if (!list) {
-      return res.status(404).json({ error: 'List nebyl nalezen' });
+    const list = await db.get('SELECT * FROM lists WHERE id = ?', [id]);
+    if (!list) throw notFound('List nebyl nalezen.');
+
+    const taskCount = await db.get('SELECT COUNT(*) AS count FROM tasks WHERE list_id = ?', [id]);
+
+    if (taskCount.count > 0 && req.query.confirm !== 'true') {
+      throw badRequest(
+        `Projekt obsahuje ${taskCount.count} úkolů, které budou smazány. ` +
+          'Zopakujte požadavek s parametrem ?confirm=true.'
+      );
     }
 
     await db.run('DELETE FROM lists WHERE id = ?', [id]);
-    res.json({ success: true, message: 'List byl smazan a pridruzene ukoly taky', deleted_id: id });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+    res.json({ success: true, deleted_id: id, deleted_task_count: taskCount.count });
+  })
+);
 
 export default router;

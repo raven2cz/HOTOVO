@@ -1,158 +1,164 @@
 import express from 'express';
-import { getDb } from '../db.js';
 import { v4 as uuidv4 } from 'uuid';
-import { authenticateToken } from './tasks.js';
+
+import { getDb } from '../db.js';
+import { requireAuth, generateToken, hashToken } from '../auth.js';
+import { asyncHandler, badRequest } from '../util/http.js';
+import { assertNonEmptyString } from '../util/validate.js';
 
 const router = express.Router();
 
-// Get API tokens (for frontend settings page)
-router.get('/', authenticateToken, async (req, res) => {
-  try {
-    const db = await getDb();
-    const tokens = await db.all('SELECT id, name, token, created_at FROM api_tokens ORDER BY created_at DESC');
-    res.json(tokens);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+router.use(requireAuth);
 
-// Create a new API token
-router.post('/', authenticateToken, async (req, res) => {
-  try {
+// List tokens. Only non-sensitive metadata is returned — never the raw token
+// or its hash.
+router.get(
+  '/',
+  asyncHandler(async (req, res) => {
+    const db = await getDb();
+    res.json(
+      await db.all('SELECT id, name, created_at FROM api_tokens ORDER BY created_at DESC')
+    );
+  })
+);
+
+// Create a token. The raw value is returned exactly once; only its hash is
+// persisted, so it cannot be recovered later.
+router.post(
+  '/',
+  asyncHandler(async (req, res) => {
     const { name } = req.body;
-    if (!name) {
-      return res.status(400).json({ error: 'Nazev tokenu je povinny' });
-    }
+    assertNonEmptyString(name, 'name');
 
     const db = await getDb();
     const id = uuidv4();
-    // Generate a secure looking token
-    const token = 'agent-' + uuidv4().replace(/-/g, '').substring(0, 24);
+    const rawToken = generateToken();
+    await db.run('INSERT INTO api_tokens (id, token_hash, name) VALUES (?, ?, ?)', [
+      id,
+      hashToken(rawToken),
+      name
+    ]);
 
-    await db.run(
-      'INSERT INTO api_tokens (id, token, name) VALUES (?, ?, ?)',
-      [id, token, name]
-    );
+    res.status(201).json({ id, name, token: rawToken, created_at: new Date().toISOString() });
+  })
+);
 
-    const newToken = await db.get('SELECT * FROM api_tokens WHERE id = ?', [id]);
-    res.status(201).json(newToken);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Delete (revoke) an API token
-router.delete('/:id', authenticateToken, async (req, res) => {
-  try {
+// Revoke a token. At least one token must always remain.
+router.delete(
+  '/:id',
+  asyncHandler(async (req, res) => {
     const { id } = req.params;
     const db = await getDb();
 
-    // Check count to prevent deleting last token if they need it (optional)
-    const tokenCount = await db.get('SELECT COUNT(*) as count FROM api_tokens');
+    const tokenCount = await db.get('SELECT COUNT(*) AS count FROM api_tokens');
     if (tokenCount.count <= 1) {
-      return res.status(400).json({ error: 'Nelze smazat posledni token. Vzdy musi existovat alespon jeden token pro AI agenty.' });
+      throw badRequest('Nelze smazat poslední token. Vždy musí existovat alespoň jeden.');
     }
 
     await db.run('DELETE FROM api_tokens WHERE id = ?', [id]);
-    res.json({ success: true, message: 'Token byl zneplatnen', deleted_id: id });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+    res.json({ success: true, deleted_id: id });
+  })
+);
 
-// Export all lists and tasks in JSON or Markdown format
-router.get('/export-data', authenticateToken, async (req, res) => {
-  try {
-    const { format } = req.query; // 'json' or 'markdown' or 'csv'
+/** Neutralise spreadsheet formula injection in exported CSV cells. */
+function csvCell(value) {
+  if (value === null || value === undefined) return '""';
+  let str = String(value);
+  if (/^[=+\-@\t\r]/.test(str)) str = `'${str}`;
+  return `"${str.replace(/"/g, '""')}"`;
+}
+
+// Export all lists and tasks as JSON, Markdown or CSV.
+router.get(
+  '/export-data',
+  asyncHandler(async (req, res) => {
+    const { format } = req.query;
     const db = await getDb();
 
     const lists = await db.all('SELECT * FROM lists');
     const tasks = await db.all('SELECT * FROM tasks');
+    const childrenOf = (parentId) => tasks.filter((t) => t.parent_id === parentId);
 
     if (format === 'markdown') {
-      let md = '# Export Todo Listů (' + new Date().toLocaleDateString('cs-CZ') + ')\n\n';
+      let md = `# Export Todo Listů (${new Date().toLocaleDateString('cs-CZ')})\n\n`;
+      const priorityMap = { low: '🟢', medium: '🟡', high: '🟠', urgent: '🔴' };
 
+      const renderTask = (task, depth, seen) => {
+        if (seen.has(task.id)) return '';
+        seen.add(task.id);
+        const indent = '  '.repeat(depth);
+        const checkbox = task.status === 'completed' ? '[x]' : '[ ]';
+        const priority = priorityMap[task.priority] || '';
+        const dueDate = task.due_date
+          ? ` 📅 *${new Date(task.due_date).toLocaleDateString('cs-CZ')}*`
+          : '';
+        let line = `${indent}- ${checkbox} ${priority} **${task.title}**${dueDate}\n`;
+        if (task.description) line += `${indent}  *${task.description}*\n`;
+        for (const child of childrenOf(task.id)) line += renderTask(child, depth + 1, seen);
+        return line;
+      };
+
+      const seen = new Set();
       for (const list of lists) {
         md += `## 📁 ${list.name}\n\n`;
-        const listTasks = tasks.filter(t => t.list_id === list.id && !t.parent_id);
-        
-        if (listTasks.length === 0) {
-          md += '*Žádné úkoly*\n\n';
-          continue;
-        }
-
-        const buildTaskTree = (task, depth = 0) => {
-          const indent = '  '.repeat(depth);
-          const checkbox = task.status === 'completed' ? '[x]' : '[ ]';
-          const priorityMap = { low: '🟢', medium: '🟡', high: '🟠', urgent: '🔴' };
-          const priority = priorityMap[task.priority] || '';
-          const dueDate = task.due_date ? ` 📅 *${new Date(task.due_date).toLocaleDateString('cs-CZ')}*` : '';
-          
-          let taskLine = `${indent}- ${checkbox} ${priority} **${task.title}**${dueDate}\n`;
-          if (task.description) {
-            taskLine += `${indent}  *${task.description}*\n`;
-          }
-
-          // Fetch child tasks
-          const children = tasks.filter(t => t.parent_id === task.id);
-          for (const child of children) {
-            taskLine += buildTaskTree(child, depth + 1);
-          }
-          return taskLine;
-        };
-
-        for (const task of listTasks) {
-          md += buildTaskTree(task, 0);
-        }
+        const roots = tasks.filter((t) => t.list_id === list.id && !t.parent_id);
+        if (roots.length === 0) { md += '*Žádné úkoly*\n\n'; continue; }
+        for (const task of roots) md += renderTask(task, 0, seen);
         md += '\n';
       }
 
-      res.setHeader('Content-Type', 'text/markdown');
+      res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
       res.setHeader('Content-Disposition', 'attachment; filename=todo_export.md');
       return res.send(md);
     }
 
     if (format === 'csv') {
-      let csv = 'ID;Projekt;Nadřazený úkol;Název;Popis;Stav;Priorita;Termín;Vytvořeno\n';
+      const header = ['ID', 'Projekt', 'Nadřazený úkol', 'Název', 'Popis', 'Stav', 'Priorita', 'Termín', 'Vytvořeno'];
+      const rows = [header.map(csvCell).join(';')];
       for (const task of tasks) {
-        const list = lists.find(l => l.id === task.list_id);
-        const parent = tasks.find(t => t.id === task.parent_id);
-        
-        const listName = list ? list.name : '';
-        const parentTitle = parent ? parent.title : '';
-        
-        const cleanVal = (val) => val ? String(val).replace(/"/g, '""').replace(/;/g, ',').replace(/\n/g, ' ') : '';
-        
-        csv += `"${cleanVal(task.id)}";"${cleanVal(listName)}";"${cleanVal(parentTitle)}";"${cleanVal(task.title)}";"${cleanVal(task.description)}";"${cleanVal(task.status)}";"${cleanVal(task.priority)}";"${cleanVal(task.due_date)}";"${cleanVal(task.created_at)}"\n`;
+        const list = lists.find((l) => l.id === task.list_id);
+        const parent = tasks.find((t) => t.id === task.parent_id);
+        rows.push(
+          [
+            task.id,
+            list ? list.name : '',
+            parent ? parent.title : '',
+            task.title,
+            task.description,
+            task.status,
+            task.priority,
+            task.due_date,
+            task.created_at
+          ]
+            .map(csvCell)
+            .join(';')
+        );
       }
-      
-      res.setHeader('Content-Type', 'text/csv');
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', 'attachment; filename=todo_export.csv');
-      return res.send(csv);
+      return res.send(`${rows.join('\n')}\n`);
     }
 
-    // Default JSON export
-    const data = lists.map(list => {
-      const buildTree = (parentId = null) => {
-        return tasks
-          .filter(t => t.list_id === list.id && t.parent_id === parentId)
-          .map(t => ({
-            ...t,
-            subtasks: buildTree(t.id)
-          }));
-      };
+    // Default: JSON. Build a per-list tree, guarding against cyclic parents.
+    const data = lists.map((list) => {
+      const buildTree = (parentId, seen) =>
+        tasks
+          .filter((t) => t.list_id === list.id && t.parent_id === parentId && !seen.has(t.id))
+          .map((t) => {
+            seen.add(t.id);
+            return { ...t, subtasks: buildTree(t.id, seen) };
+          });
       return {
         id: list.id,
         name: list.name,
         color: list.color,
-        tasks: buildTree(null)
+        tasks: buildTree(null, new Set())
       };
     });
 
     res.json(data);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+  })
+);
 
 export default router;

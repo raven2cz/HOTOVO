@@ -52,11 +52,13 @@ Aplikace poběží na: [http://localhost:3000/](http://localhost:3000/)
 ---
 
 ## 🤖 API pro AI Agenty
-Všechny požadavky musí být autorizovány v hlavičce:
+Všechny požadavky z nelokálních klientů (AI agenti, vzdálený přístup) musí být autorizovány v hlavičce:
 ```
-Authorization: Bearer agent-secret-42-pineapple-token
+Authorization: Bearer <váš_API_token>
 ```
-*(Tento výchozí token je předgenerován. Další klíče si můžete vytvořit a spravovat v **Nastavení** přímo v UI).*
+**Kde token vzít:** při prvním spuštění serveru se do konzole jednorázově vypíše výchozí token. Další tokeny vytvoříte a spravujete v **Nastavení → AI Agenti (API)**. Tokeny se ukládají pouze jako hash (SHA‑256) — surovou hodnotu uvidíte jen jednou při vytvoření, proto si ji uložte.
+
+> 🔒 **Lokální UI** běžící na stejném zařízení (loopback, stejný origin) token nepotřebuje. Vzdálení klienti a jiné originy ano. Server se ve výchozím stavu váže na `127.0.0.1`; pro přístup z LAN nastavte `HOST=0.0.0.0` až po vytvoření tokenů.
 
 ### Hlavní API Endpointy
 - `GET /api/tasks` - Výpis všech úkolů (lze filtrovat parametry: `list_id`, `status`, `priority`, `due_date`).

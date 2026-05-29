@@ -159,9 +159,17 @@ export default function CalendarView({ tasks, lists, onCreateTaskOnDate, onSelec
                   return (
                     <div
                       key={task.id}
+                      role="button"
+                      tabIndex={0}
                       onClick={(e) => {
                         e.stopPropagation(); // Avoid triggering cell quick task popover
                         onSelectTask && onSelectTask(task);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onSelectTask && onSelectTask(task);
+                        }
                       }}
                       className="flex items-center gap-1 text-[10px] truncate max-w-full px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-900 border-l-2 hover:bg-slate-200 dark:hover:bg-slate-850 cursor-pointer transition-colors"
                       style={{ borderLeftColor: color }}

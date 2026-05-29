@@ -24,7 +24,9 @@ export default defineConfig({
     // NODE_ENV=test -> server/db.js použije todo-test.db (nikdy todo.db).
     // PORT=3100 -> nekoliduje s případně běžícím produkčním serverem na 3000.
     // reuseExistingServer: false -> Playwright NIKDY nepřevezme cizí (produkční) server.
-    command: 'NODE_ENV=test PORT=3100 npm start',
+    // Start each run from a clean test database so accumulated state can never
+    // cause flaky cross-run failures (and never touches the production DB).
+    command: 'rm -f todo-test.db todo-test.db-wal todo-test.db-shm && NODE_ENV=test PORT=3100 npm start',
     url: 'http://127.0.0.1:3100',
     reuseExistingServer: false,
     timeout: 30000,
