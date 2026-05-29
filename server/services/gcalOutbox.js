@@ -65,6 +65,23 @@ export async function enqueueDelete(eventId, conn, taskId = null) {
 }
 
 /**
+ * Run `fn` while holding the drain lock, so no outbox drain (and thus no new
+ * Google event) can run concurrently. Used by disconnect to delete remote
+ * events and clear credentials without a concurrent drain creating orphans.
+ */
+export async function runExclusive(fn) {
+  while (draining) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  draining = true; // synchronous claim after the wait loop (no interleaving)
+  try {
+    return await fn();
+  } finally {
+    draining = false;
+  }
+}
+
+/**
  * Process due queue entries. Serialized via the `draining` flag so Google is
  * only ever written by one path at a time. No-ops (returns early) when sync is
  * not configured, leaving entries queued until the user connects.

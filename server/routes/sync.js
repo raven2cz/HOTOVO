@@ -7,7 +7,7 @@ import { asyncHandler } from '../util/http.js';
 import { encryptSecret } from '../util/secrets.js';
 import { PUBLIC_BASE_URL } from '../config.js';
 import { getAuthUrl, handleCallback, deleteGoogleEvent } from '../services/gcal.js';
-import { enqueueUpsert, drainOutbox } from '../services/gcalOutbox.js';
+import { enqueueUpsert, drainOutbox, runExclusive } from '../services/gcalOutbox.js';
 
 const router = express.Router();
 
@@ -136,35 +136,39 @@ router.post(
   asyncHandler(async (req, res) => {
     const db = await getDb();
 
-    // While credentials are still present, remove the remote events we created
-    // so reconnecting later doesn't leave orphans / create duplicates. Track
-    // any that fail so the user is told which events to clean up manually
-    // (after credentials are gone we can no longer delete them ourselves).
-    const synced = await db.all('SELECT gcal_event_id FROM tasks WHERE gcal_event_id IS NOT NULL');
-    const orphaned = [];
-    for (const { gcal_event_id } of synced) {
-      try {
-        await deleteGoogleEvent(gcal_event_id);
-      } catch (err) {
-        console.warn(`[gcal] event delete on disconnect failed (${gcal_event_id}): ${err.message}`);
-        orphaned.push(gcal_event_id);
+    // Hold the outbox drain lock for the whole disconnect, so a concurrent drain
+    // can't create a new event after we snapshot but before credentials are
+    // cleared (which would orphan it).
+    const orphaned = await runExclusive(async () => {
+      // While credentials are still present, remove the remote events we created.
+      // Track any that fail so the user is told which to clean up manually.
+      const synced = await db.all('SELECT gcal_event_id FROM tasks WHERE gcal_event_id IS NOT NULL');
+      const failed = [];
+      for (const { gcal_event_id } of synced) {
+        try {
+          await deleteGoogleEvent(gcal_event_id);
+        } catch (err) {
+          console.warn(`[gcal] event delete on disconnect failed (${gcal_event_id}): ${err.message}`);
+          failed.push(gcal_event_id);
+        }
       }
-    }
 
-    // Fully forget the Google connection (tokens AND client credentials) and
-    // clear all derived sync state in one transaction, so a crash can't leave a
-    // half-disconnected state.
-    await withTransaction(async (tx) => {
-      await tx.run(
-        `DELETE FROM settings WHERE key IN (
-           'gcal_refresh_token', 'gcal_access_token', 'gcal_token_expiry',
-           'gcal_client_id', 'gcal_client_secret', 'gcal_redirect_uri'
-         )`
-      );
-      await tx.run('DELETE FROM oauth_states');
-      // Drop any queued sync work — credentials are gone, so it can't be applied.
-      await tx.run('DELETE FROM gcal_outbox');
-      await tx.run('UPDATE tasks SET gcal_event_id = NULL, gcal_updated_at = NULL');
+      // Fully forget the Google connection (tokens AND client credentials) and
+      // clear all derived sync state in one transaction.
+      await withTransaction(async (tx) => {
+        await tx.run(
+          `DELETE FROM settings WHERE key IN (
+             'gcal_refresh_token', 'gcal_access_token', 'gcal_token_expiry',
+             'gcal_client_id', 'gcal_client_secret', 'gcal_redirect_uri'
+           )`
+        );
+        await tx.run('DELETE FROM oauth_states');
+        // Drop any queued sync work — credentials are gone, so it can't be applied.
+        await tx.run('DELETE FROM gcal_outbox');
+        await tx.run('UPDATE tasks SET gcal_event_id = NULL, gcal_updated_at = NULL');
+      });
+
+      return failed;
     });
 
     res.json({
