@@ -27,6 +27,10 @@ let draining = false;
 export async function enqueueUpsert(taskId, conn) {
   if (!taskId) return;
   const db = conn || (await getDb());
+  // Cancel any pending delete tied to this task: if the task is being (re)synced
+  // it must exist, so a queued delete of its event is now stale (e.g. due date
+  // cleared then re-added before the delete drained).
+  await db.run("DELETE FROM gcal_outbox WHERE op = 'delete' AND task_id = ?", [taskId]);
   await db.run(
     `INSERT INTO gcal_outbox (id, op, task_id)
      SELECT ?, 'upsert', ?
@@ -35,15 +39,19 @@ export async function enqueueUpsert(taskId, conn) {
   );
 }
 
-/** Enqueue a delete for a remote event (deduped per event id). */
-export async function enqueueDelete(eventId, conn) {
+/**
+ * Enqueue a delete for a remote event (deduped per event id). Pass `taskId`
+ * when the event still belongs to a live task (e.g. due-date removal) so a
+ * later re-sync of that task can cancel this delete if it becomes stale.
+ */
+export async function enqueueDelete(eventId, conn, taskId = null) {
   if (!eventId) return;
   const db = conn || (await getDb());
   await db.run(
-    `INSERT INTO gcal_outbox (id, op, event_id)
-     SELECT ?, 'delete', ?
+    `INSERT INTO gcal_outbox (id, op, event_id, task_id)
+     SELECT ?, 'delete', ?, ?
      WHERE NOT EXISTS (SELECT 1 FROM gcal_outbox WHERE op = 'delete' AND event_id = ?)`,
-    [uuidv4(), eventId, eventId]
+    [uuidv4(), eventId, taskId, eventId]
   );
 }
 

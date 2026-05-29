@@ -285,7 +285,9 @@ router.put(
       // descendants + affected ancestor chains), plus a delete for the event
       // detached when a due date is removed. Atomic with the update above.
       if (configured) {
-        const upsertIds = new Set([id]);
+        const upsertIds = new Set();
+        // The edited task is re-synced unless it just lost its due date.
+        if (!removingDueDate) upsertIds.add(id);
         if (statusChanged) {
           for (const d of await descendantIds(tx, id)) upsertIds.add(d);
           for (const a of await ancestorIds(tx, task.parent_id)) upsertIds.add(a);
@@ -294,8 +296,12 @@ router.put(
           for (const a of await ancestorIds(tx, task.parent_id)) upsertIds.add(a);
           if (parent_id) for (const a of await ancestorIds(tx, parent_id)) upsertIds.add(a);
         }
-        const deleteEventIds = removingDueDate && task.gcal_event_id ? [task.gcal_event_id] : [];
-        await enqueueSyncTargets(tx, { upsertIds: [...upsertIds], deleteEventIds });
+        await enqueueSyncTargets(tx, { upsertIds: [...upsertIds] });
+        // Tie this delete to the task so re-adding a due date before it drains
+        // cancels it (avoids deleting a freshly re-linked event).
+        if (removingDueDate && task.gcal_event_id) {
+          await enqueueDelete(task.gcal_event_id, tx, id);
+        }
       }
     });
 
