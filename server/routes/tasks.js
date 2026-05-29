@@ -1,7 +1,7 @@
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 
-import { getDb } from '../db.js';
+import { getDb, withTransaction } from '../db.js';
 import { requireAuth } from '../auth.js';
 import { asyncHandler, badRequest, notFound } from '../util/http.js';
 import {
@@ -209,15 +209,15 @@ router.put(
     const parentChanged = parent_id !== undefined && parent_id !== task.parent_id;
     const listChanged = list_id !== undefined && list_id !== task.list_id;
 
-    // Apply the primary update plus any status/structure propagation atomically.
-    await db.run('BEGIN');
-    try {
-      await db.run(`UPDATE tasks SET ${sets.join(', ')} WHERE id = ?`, [...params, id]);
+    // Apply the primary update plus any status/structure propagation atomically
+    // and serialized against other transactions (shared connection).
+    await withTransaction(async (tx) => {
+      await tx.run(`UPDATE tasks SET ${sets.join(', ')} WHERE id = ?`, [...params, id]);
 
       // Moving a task to another project moves its whole subtree, keeping the
       // tree consistent (descendants share their ancestor's list).
       if (listChanged) {
-        await db.run(
+        await tx.run(
           `WITH RECURSIVE descendants(id) AS (
              SELECT ?
              UNION ALL
@@ -228,19 +228,14 @@ router.put(
         );
       }
 
-      if (statusChanged) await cascadeStatusDown(db, id, status);
+      if (statusChanged) await cascadeStatusDown(tx, id, status);
 
       // Recompute every ancestor chain affected by this change.
       const parentsToRollup = new Set();
       if (statusChanged) parentsToRollup.add(parent_id !== undefined ? parent_id : task.parent_id);
       if (parentChanged) { parentsToRollup.add(task.parent_id); parentsToRollup.add(parent_id); }
-      for (const p of parentsToRollup) if (p) await rollupAncestors(db, p);
-
-      await db.run('COMMIT');
-    } catch (err) {
-      await db.run('ROLLBACK');
-      throw err;
-    }
+      for (const p of parentsToRollup) if (p) await rollupAncestors(tx, p);
+    });
 
     // Sync every due-dated task whose status the cascade/rollup may have
     // changed (the task itself, its descendants, and its ancestor chain), so

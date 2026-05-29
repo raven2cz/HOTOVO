@@ -27,6 +27,38 @@ export function getDb() {
   return dbPromise;
 }
 
+// All requests share a single SQLite connection, so multi-statement
+// transactions must be serialized — otherwise another request's statements
+// could execute between a BEGIN and its COMMIT. This promise-chain mutex runs
+// transaction bodies one at a time. `fn` receives the db handle.
+let txMutex = Promise.resolve();
+
+export function withTransaction(fn) {
+  const run = async () => {
+    const db = await getDb();
+    await db.run('BEGIN IMMEDIATE');
+    try {
+      const result = await fn(db);
+      await db.run('COMMIT');
+      return result;
+    } catch (err) {
+      try {
+        await db.run('ROLLBACK');
+      } catch {
+        /* rollback may fail if the tx already aborted */
+      }
+      throw err;
+    }
+  };
+  // Chain onto the previous transaction regardless of how it settled.
+  const result = txMutex.then(run, run);
+  txMutex = result.then(
+    () => undefined,
+    () => undefined
+  );
+  return result;
+}
+
 async function initialise() {
   const db = await open({ filename: DB_PATH, driver: sqlite3.Database });
 

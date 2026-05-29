@@ -1,7 +1,7 @@
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 
-import { getDb } from '../db.js';
+import { getDb, withTransaction } from '../db.js';
 import { requireAuth, requireLocalUi, generateToken, hashToken } from '../auth.js';
 import { asyncHandler, badRequest, notFound } from '../util/http.js';
 import { assertNonEmptyString } from '../util/validate.js';
@@ -53,25 +53,19 @@ router.delete(
   requireLocalUi,
   asyncHandler(async (req, res) => {
     const { id } = req.params;
-    const db = await getDb();
 
     // Serialise the count-then-delete so two concurrent deletes can't both pass
     // the "keep at least one" check and wipe every token.
-    await db.run('BEGIN IMMEDIATE');
-    try {
-      const tokenCount = await db.get('SELECT COUNT(*) AS count FROM api_tokens');
+    await withTransaction(async (tx) => {
+      const tokenCount = await tx.get('SELECT COUNT(*) AS count FROM api_tokens');
       if (tokenCount.count <= 1) {
         throw badRequest('Nelze smazat poslední token. Vždy musí existovat alespoň jeden.');
       }
-      const result = await db.run('DELETE FROM api_tokens WHERE id = ?', [id]);
+      const result = await tx.run('DELETE FROM api_tokens WHERE id = ?', [id]);
       if (result.changes === 0) {
         throw notFound('Token nebyl nalezen.');
       }
-      await db.run('COMMIT');
-    } catch (err) {
-      await db.run('ROLLBACK');
-      throw err;
-    }
+    });
 
     res.json({ success: true, deleted_id: id });
   })
