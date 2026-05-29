@@ -4,7 +4,7 @@ import { open } from 'sqlite';
 import sqlite3 from 'sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 
-import { APP_ENV, DB_PATH } from './config.js';
+import { APP_ENV, IS_TEST, DB_PATH } from './config.js';
 import { generateToken, hashToken } from './auth.js';
 import { encryptSecret, isEncrypted } from './util/secrets.js';
 
@@ -288,8 +288,10 @@ async function seedDefaults(db) {
   // On first run, mint one random token. Only its hash is stored, so we write
   // the raw value to a 0600 provisioning file (NOT to stdout/journald, which
   // may be world-readable) and log only the path.
+  // Skip in tests: the test DB lives in the repo root, so writing the file
+  // there would clobber a real provisioning token and create a stale artifact.
   const tokenCount = await db.get('SELECT COUNT(*) AS count FROM api_tokens');
-  if (tokenCount.count === 0) {
+  if (tokenCount.count === 0 && !IS_TEST) {
     const rawToken = generateToken();
     await db.run('INSERT INTO api_tokens (id, token_hash, name) VALUES (?, ?, ?)', [
       uuidv4(),

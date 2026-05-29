@@ -43,8 +43,17 @@ ProtectControlGroups=true
 ProtectKernelTunables=true
 RestrictSUIDSGID=true
 # The app writes its SQLite DB / key / token files in the working directory.
+# HARDENING (recommended): move runtime state out of the source tree so an app
+# compromise can't modify source/build inputs and repo cleanup can't delete data:
+#   StateDirectory=aether-todo
+#   Environment=DB_PATH=/var/lib/aether-todo/todo.db TODO_SECRET_KEY=<64-hex>
+#   ReadWritePaths=/var/lib/aether-todo
+# (then build the frontend at deploy time instead of ExecStartPre).
 ReadWritePaths=/home/box/git/github/todo-list
 # To expose on the LAN, add HOST=0.0.0.0 below AFTER configuring API tokens.
+# Behind a reverse proxy, also set LOCAL_UI_BYPASS=false so EVERY /api request
+# requires a token (proxied requests are otherwise refused the local bypass via
+# forwarded-header detection, but this makes the intent explicit).
 Environment=PORT=3000 NODE_ENV=production
 # Recommended: keep the at-rest encryption key OUT of the data directory.
 # Generate once: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"

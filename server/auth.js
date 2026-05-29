@@ -18,6 +18,21 @@ function isLoopback(req) {
   return ip === '127.0.0.1' || ip === '::1' || ip === 'localhost';
 }
 
+/**
+ * Detect requests that arrived via a reverse proxy. A direct local request has
+ * none of these; a proxy adds at least one. If present, we must NOT treat the
+ * request as local UI even though the socket peer is 127.0.0.1 and the proxy may
+ * have rewritten Host to localhost.
+ */
+function isProxied(req) {
+  return !!(
+    req.headers['x-forwarded-for'] ||
+    req.headers['x-forwarded-host'] ||
+    req.headers['x-forwarded-proto'] ||
+    req.headers['forwarded']
+  );
+}
+
 /** The Host header's hostname must be an explicitly trusted local host. */
 function isTrustedHost(req) {
   const host = req.headers.host;
@@ -62,7 +77,11 @@ export async function requireAuth(req, res, next) {
     // request from a trusted host is the local UI even if it also carries a
     // stored token. (Defeats DNS rebinding via the trusted-host allow-list.)
     req.isLocalUi =
-      LOCAL_UI_BYPASS && isLoopback(req) && isTrustedHost(req) && isSameOrigin(req);
+      LOCAL_UI_BYPASS &&
+      isLoopback(req) &&
+      !isProxied(req) &&
+      isTrustedHost(req) &&
+      isSameOrigin(req);
 
     const authHeader = req.headers.authorization || '';
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
