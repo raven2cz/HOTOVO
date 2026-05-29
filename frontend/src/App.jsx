@@ -108,9 +108,10 @@ export default function App() {
     if (!confirm('Opravdu chcete smazat tento projekt a všechny jeho úkoly?')) return;
     try {
       await api.deleteList(listId);
-      setLists(lists.filter(l => l.id !== listId));
+      const remaining = lists.filter(l => l.id !== listId);
+      setLists(remaining);
       if (selectedListId === listId) {
-        setSelectedListId(lists[0]?.id || null);
+        setSelectedListId(remaining[0]?.id || null);
       }
       loadData();
     } catch (err) {

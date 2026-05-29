@@ -50,12 +50,21 @@ router.delete(
     const { id } = req.params;
     const db = await getDb();
 
-    const tokenCount = await db.get('SELECT COUNT(*) AS count FROM api_tokens');
-    if (tokenCount.count <= 1) {
-      throw badRequest('Nelze smazat poslední token. Vždy musí existovat alespoň jeden.');
+    // Serialise the count-then-delete so two concurrent deletes can't both pass
+    // the "keep at least one" check and wipe every token.
+    await db.run('BEGIN IMMEDIATE');
+    try {
+      const tokenCount = await db.get('SELECT COUNT(*) AS count FROM api_tokens');
+      if (tokenCount.count <= 1) {
+        throw badRequest('Nelze smazat poslední token. Vždy musí existovat alespoň jeden.');
+      }
+      await db.run('DELETE FROM api_tokens WHERE id = ?', [id]);
+      await db.run('COMMIT');
+    } catch (err) {
+      await db.run('ROLLBACK');
+      throw err;
     }
 
-    await db.run('DELETE FROM api_tokens WHERE id = ?', [id]);
     res.json({ success: true, deleted_id: id });
   })
 );

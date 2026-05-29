@@ -5,7 +5,7 @@ import { getDb } from '../db.js';
 import { requireAuth } from '../auth.js';
 import { asyncHandler } from '../util/http.js';
 import { encryptSecret } from '../util/secrets.js';
-import { getAuthUrl, handleCallback, fullSync } from '../services/gcal.js';
+import { getAuthUrl, handleCallback, fullSync, deleteGoogleEvent } from '../services/gcal.js';
 
 const router = express.Router();
 
@@ -111,6 +111,18 @@ router.post(
   requireAuth,
   asyncHandler(async (req, res) => {
     const db = await getDb();
+
+    // While credentials are still present, remove the remote events we created
+    // so reconnecting later doesn't leave orphans / create duplicates.
+    const synced = await db.all('SELECT gcal_event_id FROM tasks WHERE gcal_event_id IS NOT NULL');
+    for (const { gcal_event_id } of synced) {
+      try {
+        await deleteGoogleEvent(gcal_event_id);
+      } catch (err) {
+        console.warn(`[gcal] event delete on disconnect failed (${gcal_event_id}): ${err.message}`);
+      }
+    }
+
     await db.run(
       "DELETE FROM settings WHERE key IN ('gcal_refresh_token', 'gcal_access_token', 'gcal_token_expiry', 'gcal_oauth_state')"
     );

@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { APP_ENV, DB_PATH } from './config.js';
 import { generateToken, hashToken } from './auth.js';
+import { encryptSecret, isEncrypted } from './util/secrets.js';
 
 // Announce which database this process uses. Confusing test/prod databases was
 // the root cause of the data loss incident, so make it impossible to miss.
@@ -68,9 +69,25 @@ async function initialise() {
   `);
 
   await migrateApiTokens(db);
+  await migrateSecrets(db);
   await seedDefaults(db);
 
   return db;
+}
+
+/**
+ * Re-encrypt any sensitive settings that were stored as plaintext by an older
+ * version, so an upgraded database does not keep OAuth secrets readable at rest.
+ */
+async function migrateSecrets(db) {
+  const secretKeys = ['gcal_client_secret', 'gcal_refresh_token', 'gcal_access_token'];
+  for (const key of secretKeys) {
+    const row = await db.get('SELECT value FROM settings WHERE key = ?', [key]);
+    if (row?.value && !isEncrypted(row.value)) {
+      await db.run('UPDATE settings SET value = ? WHERE key = ?', [encryptSecret(row.value), key]);
+      console.log(`[db] Re-encrypted legacy plaintext secret at rest: ${key}`);
+    }
+  }
 }
 
 // The original well-known seeded token. Compromised by definition (it shipped

@@ -42,6 +42,10 @@ function getKey() {
   return cachedKey;
 }
 
+export function isEncrypted(value) {
+  return typeof value === 'string' && value.startsWith(PREFIX);
+}
+
 export function encryptSecret(plaintext) {
   if (plaintext === null || plaintext === undefined || plaintext === '') return plaintext;
   const iv = crypto.randomBytes(12);

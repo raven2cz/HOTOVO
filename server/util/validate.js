@@ -29,18 +29,25 @@ export function assertDueDate(value, fieldName = 'due_date') {
     throw badRequest(`Pole "${fieldName}" musí být datum ve formátu ISO.`);
   }
 
+  // Reject calendar rollovers like 2026-02-31 (would silently become March).
+  const isRealCalendarDate = (y, m, d) => {
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+  };
+
   if (DATE_ONLY.test(value)) {
     const [y, m, d] = value.split('-').map(Number);
-    const dt = new Date(Date.UTC(y, m - 1, d));
-    // Reject rollovers like 2026-02-31 (would become March).
-    if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) {
+    if (!isRealCalendarDate(y, m, d)) {
       throw badRequest(`Pole "${fieldName}" není platné kalendářní datum: ${value}`);
     }
     return value;
   }
 
-  if (ISO_DATETIME.test(value) && !Number.isNaN(Date.parse(value))) {
-    return value;
+  if (ISO_DATETIME.test(value)) {
+    const [y, m, d] = value.slice(0, 10).split('-').map(Number);
+    if (isRealCalendarDate(y, m, d) && !Number.isNaN(Date.parse(value))) {
+      return value;
+    }
   }
 
   throw badRequest(`Pole "${fieldName}" musí být ve formátu YYYY-MM-DD nebo ISO 8601: ${value}`);
