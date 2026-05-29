@@ -93,7 +93,9 @@ router.get(
     try {
       await handleCallback(code);
     } catch (err) {
-      console.error('[gcal] OAuth callback failed:', err);
+      // Log only sanitized fields — the raw error can carry the auth code and
+      // OAuth client details, which must not land in logs/journald.
+      console.error('[gcal] OAuth callback failed:', err.message, err.code ?? '', err.response?.status ?? '');
       return res.status(500).send('Dokončení autentizace selhalo. Zkuste to prosím znovu.');
     }
 

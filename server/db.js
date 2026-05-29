@@ -27,27 +27,45 @@ export function getDb() {
   return dbPromise;
 }
 
-// All requests share a single SQLite connection, so multi-statement
-// transactions must be serialized — otherwise another request's statements
-// could execute between a BEGIN and its COMMIT. This promise-chain mutex runs
-// transaction bodies one at a time. `fn` receives the db handle.
+/**
+ * Run `fn` inside a transaction on a DEDICATED connection.
+ *
+ * Using a separate connection (not the shared read connection) isolates the
+ * transaction: statements issued on the shared connection by other requests
+ * can never accidentally become part of this transaction. SQLite's file-level
+ * locking + busy_timeout serializes the actual writes. A promise-chain mutex
+ * additionally serializes our own transactions so they don't contend with each
+ * other (avoiding SQLITE_BUSY between transactions we control). `fn` receives
+ * the transaction's connection handle.
+ */
 let txMutex = Promise.resolve();
+
+async function openConnection() {
+  const conn = await open({ filename: DB_PATH, driver: sqlite3.Database });
+  await conn.run('PRAGMA foreign_keys = ON');
+  await conn.run('PRAGMA busy_timeout = 5000');
+  return conn;
+}
 
 export function withTransaction(fn) {
   const run = async () => {
-    const db = await getDb();
-    await db.run('BEGIN IMMEDIATE');
+    const conn = await openConnection();
     try {
-      const result = await fn(db);
-      await db.run('COMMIT');
-      return result;
-    } catch (err) {
+      await conn.run('BEGIN IMMEDIATE');
       try {
-        await db.run('ROLLBACK');
-      } catch {
-        /* rollback may fail if the tx already aborted */
+        const result = await fn(conn);
+        await conn.run('COMMIT');
+        return result;
+      } catch (err) {
+        try {
+          await conn.run('ROLLBACK');
+        } catch {
+          /* rollback may fail if the tx already aborted */
+        }
+        throw err;
       }
-      throw err;
+    } finally {
+      await conn.close();
     }
   };
   // Chain onto the previous transaction regardless of how it settled.
@@ -62,9 +80,12 @@ export function withTransaction(fn) {
 async function initialise() {
   const db = await open({ filename: DB_PATH, driver: sqlite3.Database });
 
-  // WAL improves durability and concurrent read/write behaviour.
+  // WAL improves durability and concurrent read/write behaviour. busy_timeout
+  // lets the shared connection wait (instead of erroring) when a transaction
+  // connection briefly holds the write lock.
   await db.exec('PRAGMA journal_mode = WAL');
   await db.run('PRAGMA foreign_keys = ON');
+  await db.run('PRAGMA busy_timeout = 5000');
 
   // Restrict the DB (and WAL/SHM sidecars) to the owner — it holds task data
   // plus token/secret material. Best-effort: ignore on platforms without chmod.

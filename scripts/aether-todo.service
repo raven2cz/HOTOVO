@@ -37,6 +37,11 @@ Restart=on-failure
 RestartSec=5
 # To expose on the LAN, add HOST=0.0.0.0 below AFTER configuring API tokens.
 Environment=PORT=3000 NODE_ENV=production
+# Recommended: keep the at-rest encryption key OUT of the data directory.
+# Generate once: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+# then provide it here (or via systemd credentials / an EnvironmentFile with 0600):
+# Environment=TODO_SECRET_KEY=<64-hex-chars>
+# EnvironmentFile=/etc/aether-todo.env
 
 [Install]
 WantedBy=multi-user.target

@@ -19,10 +19,14 @@ const MAX_ATTEMPTS = 12;
 const BATCH_SIZE = 100;
 let draining = false;
 
-/** Enqueue an upsert for a task (deduped — one pending upsert per task). */
-export async function enqueueUpsert(taskId) {
+/**
+ * Enqueue an upsert for a task (deduped — one pending upsert per task).
+ * Pass `conn` to enqueue inside an existing transaction (atomic with the
+ * triggering DB change).
+ */
+export async function enqueueUpsert(taskId, conn) {
   if (!taskId) return;
-  const db = await getDb();
+  const db = conn || (await getDb());
   await db.run(
     `INSERT INTO gcal_outbox (id, op, task_id)
      SELECT ?, 'upsert', ?
@@ -32,9 +36,9 @@ export async function enqueueUpsert(taskId) {
 }
 
 /** Enqueue a delete for a remote event (deduped per event id). */
-export async function enqueueDelete(eventId) {
+export async function enqueueDelete(eventId, conn) {
   if (!eventId) return;
-  const db = await getDb();
+  const db = conn || (await getDb());
   await db.run(
     `INSERT INTO gcal_outbox (id, op, event_id)
      SELECT ?, 'delete', ?

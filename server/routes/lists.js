@@ -1,7 +1,7 @@
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 
-import { getDb } from '../db.js';
+import { getDb, withTransaction } from '../db.js';
 import { requireAuth } from '../auth.js';
 import { asyncHandler, badRequest, notFound } from '../util/http.js';
 import { assertNonEmptyString } from '../util/validate.js';
@@ -81,21 +81,23 @@ router.delete(
       );
     }
 
-    // Capture the project's synced events, delete the list (DB cascade removes
-    // its tasks), THEN queue the remote deletes in the durable outbox so a
-    // transient Google failure is retried rather than orphaning events.
+    // Capture the project's synced events, then delete the list (DB cascade
+    // removes its tasks) and queue the remote deletes in the SAME transaction,
+    // so the durable cleanup commits atomically with the delete.
     const synced = await db.all(
       'SELECT gcal_event_id FROM tasks WHERE list_id = ? AND gcal_event_id IS NOT NULL',
       [id]
     );
+    const configured = await isSyncConfigured();
 
-    await db.run('DELETE FROM lists WHERE id = ?', [id]);
+    await withTransaction(async (tx) => {
+      await tx.run('DELETE FROM lists WHERE id = ?', [id]);
+      if (configured) {
+        for (const { gcal_event_id } of synced) await enqueueDelete(gcal_event_id, tx);
+      }
+    });
 
-    if (synced.length && (await isSyncConfigured())) {
-      for (const { gcal_event_id } of synced) await enqueueDelete(gcal_event_id);
-      await flushOutbox();
-    }
-
+    if (configured && synced.length) await flushOutbox();
     res.json({ success: true, deleted_id: id, deleted_task_count: taskCount.count });
   })
 );

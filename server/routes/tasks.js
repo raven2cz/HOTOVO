@@ -48,14 +48,13 @@ async function descendantIds(db, id) {
 }
 
 /**
- * Queue Google Calendar work and drain immediately (best-effort). Upserts for
- * tasks without a due date are dropped by the drainer. No-ops when sync is off.
+ * Enqueue Google Calendar work on the given (transaction) connection, so the
+ * queue entries commit atomically with the DB change that triggered them.
+ * Upserts for tasks without a due date are dropped later by the drainer.
  */
-async function scheduleSync({ upsertIds = [], deleteEventIds = [] }) {
-  if (!(await isSyncConfigured())) return;
-  for (const taskId of new Set(upsertIds)) await enqueueUpsert(taskId);
-  for (const eventId of new Set(deleteEventIds)) await enqueueDelete(eventId);
-  await flushOutbox();
+async function enqueueSyncTargets(tx, { upsertIds = [], deleteEventIds = [] }) {
+  for (const taskId of new Set(upsertIds)) await enqueueUpsert(taskId, tx);
+  for (const eventId of new Set(deleteEventIds)) await enqueueDelete(eventId, tx);
 }
 
 /** Throw 400 unless the referenced list exists. */
@@ -179,20 +178,26 @@ router.post(
     await assertValidParent(db, parent_id ?? null, null, list_id);
 
     const id = uuidv4();
-    await db.run(
-      `INSERT INTO tasks (id, list_id, parent_id, title, description, priority, due_date)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, list_id, parent_id || null, title, description || '', priority || 'medium', due_date || null]
-    );
+    const configured = await isSyncConfigured();
 
-    // A new pending child can flip a previously-completed parent back to pending.
-    const upsertIds = [id];
-    if (parent_id) {
-      await rollupAncestors(db, parent_id);
-      upsertIds.push(...(await ancestorIds(db, parent_id)));
-    }
-    await scheduleSync({ upsertIds });
+    // Insert, roll up ancestors, and queue calendar work atomically.
+    await withTransaction(async (tx) => {
+      await tx.run(
+        `INSERT INTO tasks (id, list_id, parent_id, title, description, priority, due_date)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [id, list_id, parent_id || null, title, description || '', priority || 'medium', due_date || null]
+      );
 
+      // A new pending child can flip a previously-completed parent back to pending.
+      const upsertIds = [id];
+      if (parent_id) {
+        await rollupAncestors(tx, parent_id);
+        upsertIds.push(...(await ancestorIds(tx, parent_id)));
+      }
+      if (configured) await enqueueSyncTargets(tx, { upsertIds });
+    });
+
+    if (configured) await flushOutbox();
     res.status(201).json(await db.get('SELECT * FROM tasks WHERE id = ?', [id]));
   })
 );
@@ -246,9 +251,10 @@ router.put(
     const statusChanged = status !== undefined && status !== task.status;
     const parentChanged = parent_id !== undefined && parent_id !== task.parent_id;
     const listChanged = list_id !== undefined && list_id !== task.list_id;
+    const configured = await isSyncConfigured();
 
-    // Apply the primary update plus any status/structure propagation atomically
-    // and serialized against other transactions (shared connection).
+    // Apply the update, status/structure propagation, AND the calendar-sync
+    // queue entries atomically on an isolated transaction connection.
     await withTransaction(async (tx) => {
       await tx.run(`UPDATE tasks SET ${sets.join(', ')} WHERE id = ?`, [...params, id]);
 
@@ -273,25 +279,26 @@ router.put(
       if (statusChanged) parentsToRollup.add(parent_id !== undefined ? parent_id : task.parent_id);
       if (parentChanged) { parentsToRollup.add(task.parent_id); parentsToRollup.add(parent_id); }
       for (const p of parentsToRollup) if (p) await rollupAncestors(tx, p);
+
+      // Queue calendar sync for every task whose status may have changed (self +
+      // descendants + affected ancestor chains), plus a delete for the event
+      // detached when a due date is removed. Atomic with the update above.
+      if (configured) {
+        const upsertIds = new Set([id]);
+        if (statusChanged) {
+          for (const d of await descendantIds(tx, id)) upsertIds.add(d);
+          for (const a of await ancestorIds(tx, task.parent_id)) upsertIds.add(a);
+        }
+        if (parentChanged) {
+          for (const a of await ancestorIds(tx, task.parent_id)) upsertIds.add(a);
+          if (parent_id) for (const a of await ancestorIds(tx, parent_id)) upsertIds.add(a);
+        }
+        const deleteEventIds = removingDueDate && task.gcal_event_id ? [task.gcal_event_id] : [];
+        await enqueueSyncTargets(tx, { upsertIds: [...upsertIds], deleteEventIds });
+      }
     });
 
-    // Queue calendar sync for every task whose status the cascade/rollup may
-    // have changed (self + descendants + affected ancestor chains), and a
-    // delete for the event detached when a due date is removed. The drainer
-    // (single serialized writer) makes this idempotent and retryable.
-    const upsertIds = new Set([id]);
-    if (statusChanged) {
-      for (const d of await descendantIds(db, id)) upsertIds.add(d);
-      for (const a of await ancestorIds(db, task.parent_id)) upsertIds.add(a);
-    }
-    if (parentChanged) {
-      for (const a of await ancestorIds(db, task.parent_id)) upsertIds.add(a);
-      if (parent_id) for (const a of await ancestorIds(db, parent_id)) upsertIds.add(a);
-    }
-    const deleteEventIds = removingDueDate && task.gcal_event_id ? [task.gcal_event_id] : [];
-
-    await scheduleSync({ upsertIds: [...upsertIds], deleteEventIds });
-
+    if (configured) await flushOutbox();
     res.json(await db.get('SELECT * FROM tasks WHERE id = ?', [id]));
   })
 );
@@ -327,20 +334,25 @@ router.delete(
       );
     }
 
-    await db.run('DELETE FROM tasks WHERE id = ?', [id]);
-
-    // Removing a child can complete a parent (all remaining children done).
-    const upsertIds = [];
-    if (task.parent_id) {
-      await rollupAncestors(db, task.parent_id);
-      upsertIds.push(...(await ancestorIds(db, task.parent_id)));
-    }
-
-    // Queue remote cleanup AFTER the local delete; the event ids live in the
-    // durable outbox, so a transient Google failure is retried, not lost.
     const deleteEventIds = subtree.filter((n) => n.gcal_event_id).map((n) => n.gcal_event_id);
-    await scheduleSync({ upsertIds, deleteEventIds });
+    const configured = await isSyncConfigured();
 
+    // Delete, roll up the parent chain, and queue remote cleanup atomically —
+    // the event ids land in the durable outbox in the SAME commit as the local
+    // delete, so a crash can't lose the remote cleanup, and transient Google
+    // failures are retried.
+    await withTransaction(async (tx) => {
+      await tx.run('DELETE FROM tasks WHERE id = ?', [id]);
+
+      const upsertIds = [];
+      if (task.parent_id) {
+        await rollupAncestors(tx, task.parent_id);
+        upsertIds.push(...(await ancestorIds(tx, task.parent_id)));
+      }
+      if (configured) await enqueueSyncTargets(tx, { upsertIds, deleteEventIds });
+    });
+
+    if (configured) await flushOutbox();
     res.json({ success: true, deleted_id: id, deleted_count: subtree.length });
   })
 );
