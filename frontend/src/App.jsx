@@ -46,6 +46,9 @@ export default function App() {
   const [loadError, setLoadError] = useState(null);
   // Monotonic counter so out-of-order loadData() responses can be discarded
   const loadSeq = useRef(0);
+  // Tasks with an in-flight status toggle (prevents double-click double-submit,
+  // which for a recurring task would advance the due date twice).
+  const togglingTasks = useRef(new Set());
 
   // App initialization
   useEffect(() => {
@@ -200,12 +203,16 @@ export default function App() {
   };
 
   const handleToggleStatus = async (task) => {
+    if (togglingTasks.current.has(task.id)) return; // ignore rapid double-clicks
+    togglingTasks.current.add(task.id);
     const newStatus = task.status === 'completed' ? 'pending' : 'completed';
     try {
       await api.updateTask(task.id, { status: newStatus });
       loadData();
     } catch (err) {
       alert(err.message);
+    } finally {
+      togglingTasks.current.delete(task.id);
     }
   };
 
@@ -259,10 +266,13 @@ export default function App() {
     if (noFilters) return listTasks;
 
     const q = searchTerm.trim().toLowerCase();
+    // Ignore a tag filter that no longer exists in this project (its dropdown is
+    // hidden), so it can't silently hide everything with no way to clear it.
+    const effectiveTag = availableTags.includes(tagFilter) ? tagFilter : 'all';
     const matches = listTasks.filter(t => {
       if (filterPriority !== 'all' && t.priority !== filterPriority) return false;
       if (filterStatus !== 'all' && t.status !== filterStatus) return false;
-      if (tagFilter !== 'all' && !(Array.isArray(t.tags) && t.tags.includes(tagFilter))) return false;
+      if (effectiveTag !== 'all' && !(Array.isArray(t.tags) && t.tags.includes(effectiveTag))) return false;
       if (dueFilter === 'today' && !isToday(t.due_date)) return false;
       if (dueFilter === 'week' && !isThisWeek(t.due_date)) return false;
       if (dueFilter === 'overdue' && !isOverdue(t.due_date, t.status)) return false;

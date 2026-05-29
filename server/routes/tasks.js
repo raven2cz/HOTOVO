@@ -326,7 +326,11 @@ router.put(
       if (dueDateProvided) setField('due_date', normalizedDueDate);
       if (list_id !== undefined) setField('list_id', list_id);
       if (parent_id !== undefined) setField('parent_id', parent_id);
-      if (recurrenceProvided) setField('recurrence', normalizedRecurrence);
+      // Recurrence is a top-level-only concept: a task that is (or becomes) a
+      // subtask must not carry recurrence.
+      const willBeSubtask = effectiveParentId !== null && effectiveParentId !== undefined;
+      if (willBeSubtask) setField('recurrence', null);
+      else if (recurrenceProvided) setField('recurrence', normalizedRecurrence);
       if (tagsProvided) setField('tags', tagsJson);
       if (removingDueDate) sets.push('gcal_event_id = NULL', 'gcal_updated_at = NULL');
 
@@ -363,7 +367,7 @@ router.put(
       // checklist) instead of completing. This is a single-row update, so there
       // are no duplicate occurrences and no tree corruption. Recurrence applies to
       // TOP-LEVEL tasks only (a recurring subtask would muddle its parent).
-      if (statusChanged && status === 'completed' && !task.parent_id) {
+      if (statusChanged && status === 'completed' && !willBeSubtask) {
         const cur = await tx.get('SELECT recurrence, due_date FROM tasks WHERE id = ?', [id]);
         const next = nextDueDate(cur.due_date, cur.recurrence);
         if (next) {
