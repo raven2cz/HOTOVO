@@ -79,16 +79,17 @@ router.get(
     if (!code) return res.status(400).send('Chybí autorizační kód Google API.');
 
     const db = await getDb();
-    const match = state
-      ? await db.get(
-          "SELECT state FROM oauth_states WHERE state = ? AND created_at >= datetime('now', '-10 minutes')",
+    // Consume the state atomically: a single DELETE that both validates and
+    // removes it, so two concurrent callbacks can't both pass the check.
+    const consumed = state
+      ? await db.run(
+          "DELETE FROM oauth_states WHERE state = ? AND created_at >= datetime('now', '-10 minutes')",
           [state]
         )
-      : null;
-    if (!match) {
+      : { changes: 0 };
+    if (consumed.changes !== 1) {
       return res.status(400).send('Neplatný, prošlý nebo chybějící state parametr (možný CSRF).');
     }
-    await db.run('DELETE FROM oauth_states WHERE state = ?', [state]);
 
     try {
       await handleCallback(code);

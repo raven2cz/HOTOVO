@@ -63,17 +63,21 @@ export const PUBLIC_BASE_URL =
   process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 
 /**
- * Hostnames that the loopback auth bypass will trust. Anything else (e.g. a
- * DNS-rebinding domain pointing at 127.0.0.1) is rejected, even from loopback.
- * Operators exposing the app can add their hostname via TRUSTED_HOSTS.
+ * FIXED set of loopback hostnames the local-UI auth bypass will trust. This is
+ * intentionally NOT operator-extendable: a reverse proxy forwards the public
+ * Host (e.g. todo.example.com), which is not in this set, so proxied/exposed
+ * requests fall through to token auth instead of being treated as local UI.
  */
 export const TRUSTED_HOSTS = new Set([
   'localhost',
   '127.0.0.1',
   '::1',
-  '[::1]', // URL.hostname keeps brackets for IPv6 literals
-  ...(process.env.TRUSTED_HOSTS || '')
-    .split(',')
-    .map((h) => h.trim().toLowerCase())
-    .filter(Boolean)
+  '[::1]' // URL.hostname keeps brackets for IPv6 literals
 ]);
+
+/**
+ * Master switch for the local-UI (loopback same-origin) auth bypass. Set
+ * LOCAL_UI_BYPASS=false for proxied/exposed deployments (or any setup where the
+ * proxy rewrites Host to localhost) to require a token for every /api request.
+ */
+export const LOCAL_UI_BYPASS = (process.env.LOCAL_UI_BYPASS ?? 'true') !== 'false';

@@ -151,12 +151,39 @@ async function initialise() {
     CREATE INDEX IF NOT EXISTS idx_tasks_parent_id ON tasks(parent_id);
   `);
 
+  await migrateTasks(db);
   await migrateApiTokens(db);
   await migrateSecrets(db);
   await migrateOutbox(db);
   await seedDefaults(db);
 
   return db;
+}
+
+/**
+ * Add any `tasks` columns missing from a database created by an older version,
+ * so routes that read/write them don't fail. Defaults must be constant for
+ * SQLite's ALTER TABLE ADD COLUMN (timestamps are added nullable).
+ */
+async function migrateTasks(db) {
+  const expected = {
+    parent_id: 'TEXT',
+    description: 'TEXT',
+    status: "TEXT DEFAULT 'pending'",
+    priority: "TEXT DEFAULT 'medium'",
+    due_date: 'TEXT',
+    gcal_event_id: 'TEXT',
+    gcal_updated_at: 'TEXT',
+    created_at: 'TEXT',
+    updated_at: 'TEXT'
+  };
+  const existing = new Set((await db.all('PRAGMA table_info(tasks)')).map((c) => c.name));
+  for (const [name, decl] of Object.entries(expected)) {
+    if (!existing.has(name)) {
+      await db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${decl}`);
+      console.log(`[db] Added missing tasks column: ${name}`);
+    }
+  }
 }
 
 /** Add the `dead` column to gcal_outbox for databases created before it existed. */

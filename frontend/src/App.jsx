@@ -733,13 +733,19 @@ export default function App() {
                   <label className="text-xs font-bold text-slate-400 uppercase tracking-wide">Projekt / List</label>
                   <select
                     value={editingTask.list_id}
+                    disabled={!!editingTask.parent_id}
                     onChange={(e) => setEditingTask({ ...editingTask, list_id: e.target.value })}
-                    className="bg-slate-200 dark:bg-slate-900 border border-border-light dark:border-border-dark rounded-xl px-3.5 py-2 text-sm focus:outline-none"
+                    className="bg-slate-200 dark:bg-slate-900 border border-border-light dark:border-border-dark rounded-xl px-3.5 py-2 text-sm focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     {lists.map((l) => (
                       <option key={l.id} value={l.id}>{l.name}</option>
                     ))}
                   </select>
+                  {editingTask.parent_id && (
+                    <span className="text-[11px] text-slate-500">
+                      Podúkol je vždy ve stejném projektu jako jeho nadřazený úkol.
+                    </span>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">

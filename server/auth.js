@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { getDb } from './db.js';
-import { TRUSTED_HOSTS } from './config.js';
+import { TRUSTED_HOSTS, LOCAL_UI_BYPASS } from './config.js';
 import { unauthorized, ApiError } from './util/http.js';
 
 /** Hash a raw API token for storage / lookup. Tokens are never stored in plaintext. */
@@ -61,7 +61,8 @@ export async function requireAuth(req, res, next) {
     // Locality is determined independently of the token: a same-origin loopback
     // request from a trusted host is the local UI even if it also carries a
     // stored token. (Defeats DNS rebinding via the trusted-host allow-list.)
-    req.isLocalUi = isLoopback(req) && isTrustedHost(req) && isSameOrigin(req);
+    req.isLocalUi =
+      LOCAL_UI_BYPASS && isLoopback(req) && isTrustedHost(req) && isSameOrigin(req);
 
     const authHeader = req.headers.authorization || '';
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
