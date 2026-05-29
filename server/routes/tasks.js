@@ -242,8 +242,37 @@ router.put(
       throw err;
     }
 
+    // Sync every due-dated task whose status the cascade/rollup may have
+    // changed (the task itself, its descendants, and its ancestor chain), so
+    // their calendar events don't go stale — not just the edited task.
+    const toSync = new Map();
     const updated = await db.get('SELECT * FROM tasks WHERE id = ?', [id]);
-    if (updated.due_date) await safeSync(updated);
+    if (updated.due_date) toSync.set(updated.id, updated);
+
+    if (statusChanged) {
+      const descendants = await db.all(
+        `WITH RECURSIVE d(id) AS (
+           SELECT ?
+           UNION ALL
+           SELECT t.id FROM tasks t JOIN d ON t.parent_id = d.id
+         )
+         SELECT t.* FROM tasks t JOIN d ON t.id = d.id WHERE t.due_date IS NOT NULL`,
+        [id]
+      );
+      for (const t of descendants) toSync.set(t.id, t);
+
+      const seen = new Set();
+      let pid = task.parent_id;
+      while (pid && !seen.has(pid)) {
+        seen.add(pid);
+        const ancestor = await db.get('SELECT * FROM tasks WHERE id = ?', [pid]);
+        if (!ancestor) break;
+        if (ancestor.due_date) toSync.set(ancestor.id, ancestor);
+        pid = ancestor.parent_id;
+      }
+    }
+
+    for (const t of toSync.values()) await safeSync(t);
 
     res.json(await db.get('SELECT * FROM tasks WHERE id = ?', [id]));
   })

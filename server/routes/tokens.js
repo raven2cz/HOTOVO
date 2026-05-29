@@ -2,7 +2,7 @@ import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 
 import { getDb } from '../db.js';
-import { requireAuth, generateToken, hashToken } from '../auth.js';
+import { requireAuth, requireLocalUi, generateToken, hashToken } from '../auth.js';
 import { asyncHandler, badRequest } from '../util/http.js';
 import { assertNonEmptyString } from '../util/validate.js';
 
@@ -10,10 +10,13 @@ const router = express.Router();
 
 router.use(requireAuth);
 
+// Token management (list/create/revoke) is restricted to the local UI so a
+// leaked agent token cannot enumerate, mint, or revoke tokens.
 // List tokens. Only non-sensitive metadata is returned — never the raw token
 // or its hash.
 router.get(
   '/',
+  requireLocalUi,
   asyncHandler(async (req, res) => {
     const db = await getDb();
     res.json(
@@ -26,6 +29,7 @@ router.get(
 // persisted, so it cannot be recovered later.
 router.post(
   '/',
+  requireLocalUi,
   asyncHandler(async (req, res) => {
     const { name } = req.body;
     assertNonEmptyString(name, 'name');
@@ -46,6 +50,7 @@ router.post(
 // Revoke a token. At least one token must always remain.
 router.delete(
   '/:id',
+  requireLocalUi,
   asyncHandler(async (req, res) => {
     const { id } = req.params;
     const db = await getDb();

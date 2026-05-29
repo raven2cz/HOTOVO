@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 // config value is read.
 import { PORT, HOST, CORS_ORIGINS } from './config.js';
 import { getDb } from './db.js';
+import { requireAuth } from './auth.js';
 import { errorHandler } from './util/http.js';
 import tasksRouter from './routes/tasks.js';
 import listsRouter from './routes/lists.js';
@@ -34,9 +35,10 @@ app.use('/api/tokens', tokensRouter);
 app.use('/api/sync', syncRouter);
 app.use('/api/docs', docsRouter);
 
-// Health check (used by process supervisors / systemd watchdogs). Intentionally
-// minimal — no runtime details for unauthenticated callers.
-app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+// Health check (used by process supervisors / systemd watchdogs). Gated like
+// the rest of /api; local supervision on loopback passes via the same-origin
+// bypass. Intentionally minimal — exposes no runtime details.
+app.get('/api/health', requireAuth, (req, res) => res.json({ status: 'ok' }));
 
 // Unmatched API routes return JSON 404 rather than the SPA shell.
 app.use('/api', (req, res) => res.status(404).json({ error: 'Endpoint nebyl nalezen.' }));

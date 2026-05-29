@@ -113,13 +113,17 @@ router.post(
     const db = await getDb();
 
     // While credentials are still present, remove the remote events we created
-    // so reconnecting later doesn't leave orphans / create duplicates.
+    // so reconnecting later doesn't leave orphans / create duplicates. Track
+    // any that fail so the user is told which events to clean up manually
+    // (after credentials are gone we can no longer delete them ourselves).
     const synced = await db.all('SELECT gcal_event_id FROM tasks WHERE gcal_event_id IS NOT NULL');
+    const orphaned = [];
     for (const { gcal_event_id } of synced) {
       try {
         await deleteGoogleEvent(gcal_event_id);
       } catch (err) {
         console.warn(`[gcal] event delete on disconnect failed (${gcal_event_id}): ${err.message}`);
+        orphaned.push(gcal_event_id);
       }
     }
 
@@ -127,7 +131,15 @@ router.post(
       "DELETE FROM settings WHERE key IN ('gcal_refresh_token', 'gcal_access_token', 'gcal_token_expiry', 'gcal_oauth_state')"
     );
     await db.run('UPDATE tasks SET gcal_event_id = NULL, gcal_updated_at = NULL');
-    res.json({ success: true, message: 'Google Kalendář byl odpojen.' });
+
+    res.json({
+      success: true,
+      message:
+        orphaned.length === 0
+          ? 'Google Kalendář byl odpojen.'
+          : `Google Kalendář byl odpojen, ale ${orphaned.length} událostí se nepodařilo smazat – odstraňte je ručně.`,
+      orphaned_events: orphaned
+    });
   })
 );
 

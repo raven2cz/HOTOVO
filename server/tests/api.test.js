@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert';
 import fs from 'fs';
+import path from 'path';
 import express from 'express';
 
-import { DB_PATH } from '../config.js';
+import { APP_ENV, DB_PATH } from '../config.js';
 import { getDb } from '../db.js';
 import { errorHandler } from '../util/http.js';
 import tasksRouter from '../routes/tasks.js';
@@ -12,7 +13,12 @@ import tokensRouter from '../routes/tokens.js';
 import docsRouter from '../routes/api-docs.js';
 
 // Start from a clean, hermetic test database every run.
+// Refuse to unlink ANYTHING unless we are provably in the test environment AND
+// the target is exactly the dedicated test database file.
 function wipeTestDb() {
+  if (APP_ENV !== 'test' || path.basename(DB_PATH) !== 'todo-test.db') {
+    throw new Error(`Refusing to wipe DB: APP_ENV=${APP_ENV}, DB_PATH=${DB_PATH}`);
+  }
   for (const suffix of ['', '-wal', '-shm']) {
     try {
       fs.unlinkSync(DB_PATH + suffix);

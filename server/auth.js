@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { getDb } from './db.js';
 import { TRUSTED_HOSTS } from './config.js';
-import { unauthorized } from './util/http.js';
+import { unauthorized, ApiError } from './util/http.js';
 
 /** Hash a raw API token for storage / lookup. Tokens are never stored in plaintext. */
 export function hashToken(rawToken) {
@@ -85,4 +85,14 @@ export async function requireAuth(req, res, next) {
   } catch (err) {
     next(err);
   }
+}
+
+/**
+ * Restrict a route to the local UI (loopback same-origin). Bearer-authenticated
+ * agents are rejected — this prevents a compromised agent token from minting a
+ * persistent backdoor token or revoking others. Must run after requireAuth.
+ */
+export function requireLocalUi(req, res, next) {
+  if (req.agent?.id === 'local-ui') return next();
+  next(new ApiError(403, 'Správa tokenů je dostupná pouze z lokálního UI.'));
 }
