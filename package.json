@@ -1,12 +1,13 @@
 {
-  "name": "todo-list-app",
+  "name": "hotovo",
   "version": "1.0.0",
-  "description": "2026-style Todo-List with AI Agent API and Google Calendar Sync",
+  "description": "HOTOVO — a 2026 self-hosted task app with an AI-agent API and Google Calendar sync",
   "main": "server/index.js",
   "scripts": {
     "install:all": "npm install && cd server && npm install && cd ../frontend && npm install",
     "build:frontend": "cd frontend && npm run build",
     "start": "node server/index.js",
+    "mcp": "node server/mcp.js",
     "dev:server": "nodemon server/index.js",
     "dev:frontend": "cd frontend && npm run dev",
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:frontend\"",

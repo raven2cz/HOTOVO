@@ -15,7 +15,7 @@ test.describe('Aether Todo E2E Flow', () => {
     await page.goto('/');
     
     // Check main branding header
-    const brand = page.locator('span:has-text("Aether Todo")');
+    const brand = page.locator('span:has-text("HOTOVO")').first();
     await expect(brand).toBeVisible();
 
     // Check if default projects are listed in sidebar

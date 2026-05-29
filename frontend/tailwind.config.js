@@ -9,16 +9,16 @@ export default {
     extend: {
       colors: {
         background: {
-          light: '#f8fafc',
-          dark: '#0b0f19',
+          light: '#f7f8fb',
+          dark: '#0a0b12',
         },
         panel: {
           light: '#ffffff',
-          dark: '#141d2f',
+          dark: '#12141d',
         },
         border: {
-          light: '#e2e8f0',
-          dark: '#1f2d47',
+          light: '#e7e9f0',
+          dark: '#222533',
         }
       },
       fontFamily: {

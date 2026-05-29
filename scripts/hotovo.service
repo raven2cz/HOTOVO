@@ -1,24 +1,24 @@
 # =====================================================================
-# AETHER TODO SYSTEMD SERVICE TEMPLATE
+# HOTOVO — SYSTEMD SERVICE TEMPLATE
 # =====================================================================
 # Návod k instalaci:
 # 1. Upravte níže cesty k WorkingDirectory a ExecStart podle vaší instalace.
 # 2. Zkopírujte tento soubor do /etc/systemd/system/:
-#    sudo cp scripts/aether-todo.service /etc/systemd/system/
+#    sudo cp scripts/hotovo.service /etc/systemd/system/
 # 3. Znovu načtěte konfiguraci systemd:
 #    sudo systemctl daemon-reload
 # 4. Povolte spuštění služby při startu systému:
-#    sudo systemctl enable aether-todo
+#    sudo systemctl enable hotovo
 # 5. Spusťte službu okamžitě:
-#    sudo systemctl start aether-todo
+#    sudo systemctl start hotovo
 #
 # Diagnostika a logy:
-# - Zkontrolovat stav služby: sudo systemctl status aether-todo
-# - Zobrazit výpis logů:      sudo journalctl -u aether-todo -f
+# - Zkontrolovat stav služby: sudo systemctl status hotovo
+# - Zobrazit výpis logů:      sudo journalctl -u hotovo -f
 # =====================================================================
 
 [Unit]
-Description=Aether Todo-List Service (2026 Webapp)
+Description=HOTOVO task app (self-hosted, AI-agent API + Google Calendar sync)
 After=network.target
 # Stop restarting if the service crashes 5 times within 60s (avoids crash loops).
 StartLimitIntervalSec=60
@@ -45,9 +45,9 @@ RestrictSUIDSGID=true
 # The app writes its SQLite DB / key / token files in the working directory.
 # HARDENING (recommended): move runtime state out of the source tree so an app
 # compromise can't modify source/build inputs and repo cleanup can't delete data:
-#   StateDirectory=aether-todo
-#   Environment=DB_PATH=/var/lib/aether-todo/todo.db TODO_SECRET_KEY=<64-hex>
-#   ReadWritePaths=/var/lib/aether-todo
+#   StateDirectory=hotovo
+#   Environment=DB_PATH=/var/lib/hotovo/todo.db TODO_SECRET_KEY=<64-hex>
+#   ReadWritePaths=/var/lib/hotovo
 # (then build the frontend at deploy time instead of ExecStartPre).
 ReadWritePaths=/home/box/git/github/todo-list
 # To expose on the LAN, add HOST=0.0.0.0 below AFTER configuring API tokens.
@@ -59,7 +59,7 @@ Environment=PORT=3000 NODE_ENV=production
 # Generate once: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 # then provide it here (or via systemd credentials / an EnvironmentFile with 0600):
 # Environment=TODO_SECRET_KEY=<64-hex-chars>
-# EnvironmentFile=/etc/aether-todo.env
+# EnvironmentFile=/etc/hotovo.env
 
 [Install]
 WantedBy=multi-user.target

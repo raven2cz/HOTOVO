@@ -1,7 +1,7 @@
 {
   "name": "todo-list-server",
   "version": "1.0.0",
-  "description": "Backend API server for Todo-List app",
+  "description": "Backend API server for HOTOVO",
   "main": "index.js",
   "type": "module",
   "scripts": {

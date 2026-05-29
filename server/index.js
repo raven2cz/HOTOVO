@@ -14,6 +14,7 @@ import tasksRouter from './routes/tasks.js';
 import listsRouter from './routes/lists.js';
 import tokensRouter from './routes/tokens.js';
 import syncRouter from './routes/sync.js';
+import agentRouter from './routes/agent.js';
 import docsRouter from './routes/api-docs.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -34,6 +35,7 @@ app.use('/api/tasks', tasksRouter);
 app.use('/api/lists', listsRouter);
 app.use('/api/tokens', tokensRouter);
 app.use('/api/sync', syncRouter);
+app.use('/api/agent', agentRouter);
 app.use('/api/docs', docsRouter);
 
 // Health check (used by process supervisors / systemd watchdogs). Gated like

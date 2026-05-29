@@ -115,7 +115,7 @@ router.get(
     const childrenOf = (parentId) => tasks.filter((t) => t.parent_id === parentId);
 
     if (format === 'markdown') {
-      let md = `# Export Todo Listů (${new Date().toLocaleDateString('cs-CZ')})\n\n`;
+      let md = `# Export úkolů — HOTOVO (${new Date().toLocaleDateString('cs-CZ')})\n\n`;
       const priorityMap = { low: '🟢', medium: '🟡', high: '🟠', urgent: '🔴' };
 
       const renderTask = (task, depth, seen) => {

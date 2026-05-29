@@ -4,6 +4,7 @@ import TaskItem from './components/TaskItem';
 import CalendarView from './components/CalendarView';
 import CommandPalette from './components/CommandPalette';
 import SettingsModal from './components/SettingsModal';
+import Logo from './components/Logo';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   FolderPlus, Settings, CheckCircle2, ListTodo, Plus, Calendar as CalendarIcon, 
@@ -283,10 +284,11 @@ export default function App() {
           {/* App Brand Title */}
           <div className="flex items-center justify-between pb-3 border-b border-border-light dark:border-border-dark">
             <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 to-violet-600 flex items-center justify-center text-white shadow-glow-primary font-bold text-lg">
-                ⚡
+              <Logo size={34} className="shadow-glow-primary rounded-[10px]" />
+              <div className="flex flex-col leading-none">
+                <span className="font-black text-lg font-sans tracking-[0.18em]">HOTOVO</span>
+                <span className="text-[10px] text-slate-500 dark:text-slate-500 tracking-wide mt-0.5">úkoly s lehkostí</span>
               </div>
-              <span className="font-extrabold text-lg font-sans tracking-wide">Aether Todo</span>
             </div>
             <button
               onClick={() => setDarkMode(!darkMode)}

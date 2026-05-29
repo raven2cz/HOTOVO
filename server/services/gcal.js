@@ -90,7 +90,7 @@ export async function getCalendarClient() {
  */
 function buildEventPayload(task) {
   const title = task.status === 'completed' ? `✅ ${task.title}` : task.title;
-  const description = `${task.description || ''}\n\nSyncováno z Todo Listu.\nPriorita: ${task.priority}`;
+  const description = `${task.description || ''}\n\nSyncováno z aplikace HOTOVO.\nPriorita: ${task.priority}`;
   const isDateOnly = typeof task.due_date === 'string' && task.due_date.length === 10;
   // Deterministic marker so retries can find the existing event instead of
   // creating a duplicate (idempotency key keyed by task id).

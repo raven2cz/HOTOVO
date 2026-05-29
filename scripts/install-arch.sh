@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Aether Todo Installer for Arch Linux
+# HOTOVO Installer for Arch Linux
 # This script ensures nodejs/npm are installed and builds the application.
 
 set -e
@@ -12,7 +12,7 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}=== Aether Todo - Arch Linux Installer ===${NC}\n"
+echo -e "${BLUE}=== HOTOVO - Arch Linux Installer ===${NC}\n"
 
 # 1. Verify we are on Arch Linux
 if [ ! -f /etc/arch-release ] && ! command -v pacman &> /dev/null; then
@@ -45,5 +45,5 @@ echo -e "\nAplikaci můžete spustit následujícími způsoby:"
 echo -e "  1. Vývojářský režim:  ${YELLOW}npm run dev${NC}  (paralelně API server + Vite hot reload)"
 echo -e "  2. Produkční režim:   ${YELLOW}npm start${NC}    (sjednocený běh na portu 3000)"
 echo -e "  3. Pomocí start skriptu: ${YELLOW}./scripts/start-app.sh${NC}"
-echo -e "  4. Jako systemd službu: Návod je v souboru ${BLUE}scripts/aether-todo.service${NC}"
+echo -e "  4. Jako systemd službu: Návod je v souboru ${BLUE}scripts/hotovo.service${NC}"
 echo ""

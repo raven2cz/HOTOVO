@@ -8,19 +8,19 @@
   }
 }
 
-/* Glassmorphism Classes */
+/* Refined surface ("glass") — subtler blur, crisper edge, less gimmick. */
 .glass {
-  background: rgba(20, 29, 47, 0.45);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(18, 20, 29, 0.62);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .light .glass {
-  background: rgba(255, 255, 255, 0.65);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(0, 0, 0, 0.05);
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(15, 23, 42, 0.06);
 }
 
 /* Custom Scrollbars */
@@ -60,25 +60,23 @@
   opacity: 0.15;
 }
 
-/* Custom Glowing Background Circles */
+/* Subtle ambient background wash — calmer than the old pulsing blobs. */
 .glow-blob {
-  filter: blur(80px);
-  opacity: 0.15;
+  filter: blur(100px);
+  opacity: 0.1;
   mix-blend-mode: screen;
   pointer-events: none;
-  animation: blob-pulse 10s infinite alternate;
+  animation: blob-drift 18s infinite alternate ease-in-out;
 }
 
-@keyframes blob-pulse {
-  0% {
-    transform: scale(1) translate(0px, 0px);
-  }
-  50% {
-    transform: scale(1.1) translate(15px, -15px);
-  }
-  100% {
-    transform: scale(0.9) translate(-10px, 10px);
-  }
+@keyframes blob-drift {
+  0% { transform: scale(1) translate(0, 0); }
+  100% { transform: scale(1.08) translate(12px, -12px); }
+}
+
+/* Reduced motion: respect user preference. */
+@media (prefers-reduced-motion: reduce) {
+  .glow-blob { animation: none; }
 }
 
 /* Custom Checkbox Strike-through Animation */

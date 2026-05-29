@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Aether Todo Launcher
+# HOTOVO Launcher
 # Builds the frontend (if needed) and starts the unified server in PRODUCTION
 # mode on a single port. For a hot-reloading dev environment use `npm run dev`.
 
@@ -26,5 +26,5 @@ if [ ! -f "frontend/dist/index.html" ]; then
     npm run build:frontend
 fi
 
-echo -e "${BLUE}Spouštím Aether Todo v produkčním režimu...${NC}"
+echo -e "${BLUE}Spouštím HOTOVO v produkčním režimu...${NC}"
 NODE_ENV=production npm start
