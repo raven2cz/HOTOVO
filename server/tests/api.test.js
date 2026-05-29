@@ -200,6 +200,43 @@ test('Backend API Integration Tests Suite', async (t) => {
     assert.ok(csv.includes(`"'=SUM(A1:A2)"`), 'leading = must be escaped with a quote');
   });
 
+  await t.test('tags + search + due filters', async () => {
+    const mk = (body) =>
+      fetch(`${baseUrl}/api/tasks`, { method: 'POST', headers: json(), body: JSON.stringify({ list_id: listId, ...body }) }).then((r) => r.json());
+
+    const tagged = await mk({ title: 'Najdime tohle', tags: ['práce', 'urgent', 'práce'] });
+    assert.deepStrictEqual(tagged.tags, ['práce', 'urgent'], 'tags returned as deduped array');
+
+    const search = await (await fetch(`${baseUrl}/api/tasks?search=najdime`)).json();
+    assert.ok(search.some((x) => x.id === tagged.id), 'search matches title');
+
+    const byTag = await (await fetch(`${baseUrl}/api/tasks?tag=${encodeURIComponent('práce')}`)).json();
+    assert.ok(byTag.some((x) => x.id === tagged.id), 'tag filter matches');
+
+    const today = new Date().toISOString().slice(0, 10);
+    await mk({ title: 'Dnešní úkol', due_date: today });
+    const dueToday = await (await fetch(`${baseUrl}/api/tasks?due=today`)).json();
+    assert.ok(dueToday.some((x) => x.title === 'Dnešní úkol'), 'due=today filter works');
+  });
+
+  await t.test('recurring task spawns the next occurrence on completion', async () => {
+    const create = await (
+      await fetch(`${baseUrl}/api/tasks`, {
+        method: 'POST',
+        headers: json(),
+        body: JSON.stringify({ title: 'Opakovaný', list_id: listId, due_date: '2026-06-01', recurrence: 'daily' })
+      })
+    ).json();
+    assert.strictEqual(create.recurrence, 'daily');
+
+    await fetch(`${baseUrl}/api/tasks/${create.id}`, { method: 'PUT', headers: json(), body: JSON.stringify({ status: 'completed' }) });
+
+    const all = await (await fetch(`${baseUrl}/api/tasks?list_id=${listId}`)).json();
+    const next = all.find((x) => x.title === 'Opakovaný' && x.status === 'pending' && x.due_date === '2026-06-02');
+    assert.ok(next, 'a new pending occurrence with due_date +1 day exists');
+    assert.strictEqual(next.recurrence, 'daily');
+  });
+
   await t.test('DELETE /api/lists/:id - requires confirm when it has tasks', async () => {
     const res = await fetch(`${baseUrl}/api/lists/${listId}`, { method: 'DELETE' });
     assert.strictEqual(res.status, 400);

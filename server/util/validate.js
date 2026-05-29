@@ -2,6 +2,40 @@ import { badRequest } from './http.js';
 
 export const TASK_STATUSES = ['pending', 'completed'];
 export const TASK_PRIORITIES = ['low', 'medium', 'high', 'urgent'];
+export const TASK_RECURRENCES = ['daily', 'weekly', 'monthly'];
+
+/**
+ * Validate the recurrence field. Accepts undefined (skip), null/'none'/'' (clear),
+ * or one of TASK_RECURRENCES. Returns the normalized value (null when cleared).
+ */
+export function assertRecurrence(value) {
+  if (value === undefined) return undefined;
+  if (value === null || value === '' || value === 'none') return null;
+  if (!TASK_RECURRENCES.includes(value)) {
+    throw badRequest(`Neplatné opakování: ${value} (povolené: ${TASK_RECURRENCES.join(', ')}, none).`);
+  }
+  return value;
+}
+
+/**
+ * Validate/normalize tags. Accepts undefined (skip), null (clear), or an array
+ * of short non-empty strings. Returns a deduped, trimmed array (or null/undefined).
+ */
+export function assertTags(value) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (!Array.isArray(value)) throw badRequest('Pole "tags" musí být pole řetězců.');
+  const cleaned = [];
+  for (const raw of value) {
+    if (typeof raw !== 'string') throw badRequest('Každý tag musí být řetězec.');
+    const tag = raw.trim();
+    if (!tag) continue;
+    if (tag.length > 40) throw badRequest('Tag je příliš dlouhý (max 40 znaků).');
+    if (!cleaned.includes(tag)) cleaned.push(tag);
+  }
+  if (cleaned.length > 25) throw badRequest('Příliš mnoho tagů (max 25).');
+  return cleaned;
+}
 
 /**
  * Validate that `value` is one of `allowed`. Returns the value unchanged when

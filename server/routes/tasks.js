@@ -8,6 +8,8 @@ import {
   assertEnum,
   assertDueDate,
   assertNonEmptyString,
+  assertRecurrence,
+  assertTags,
   TASK_STATUSES,
   TASK_PRIORITIES
 } from '../util/validate.js';
@@ -55,6 +57,34 @@ async function descendantIds(db, id) {
 async function enqueueSyncTargets(tx, { upsertIds = [], deleteEventIds = [] }) {
   for (const taskId of new Set(upsertIds)) await enqueueUpsert(taskId, tx);
   for (const eventId of new Set(deleteEventIds)) await enqueueDelete(eventId, tx);
+}
+
+/** Parse the stored `tags` JSON string into an array for API responses. */
+function serializeTask(row) {
+  if (!row) return row;
+  let tags = [];
+  if (row.tags) {
+    try {
+      const parsed = JSON.parse(row.tags);
+      if (Array.isArray(parsed)) tags = parsed;
+    } catch {
+      /* legacy/garbage value → empty */
+    }
+  }
+  return { ...row, tags };
+}
+
+/** Advance a due date by one recurrence step. Returns null if not applicable. */
+function nextDueDate(due, recurrence) {
+  if (!due || !recurrence) return null;
+  const isDateOnly = typeof due === 'string' && due.length === 10;
+  const base = new Date(isDateOnly ? `${due}T00:00:00Z` : due);
+  if (Number.isNaN(base.getTime())) return null;
+  if (recurrence === 'daily') base.setUTCDate(base.getUTCDate() + 1);
+  else if (recurrence === 'weekly') base.setUTCDate(base.getUTCDate() + 7);
+  else if (recurrence === 'monthly') base.setUTCMonth(base.getUTCMonth() + 1);
+  else return null;
+  return isDateOnly ? base.toISOString().slice(0, 10) : base.toISOString();
 }
 
 /** Throw 400 unless the referenced list exists. */
@@ -144,7 +174,7 @@ async function rollupAncestors(db, startParentId) {
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    const { list_id, status, priority, due_date } = req.query;
+    const { list_id, status, priority, due_date, search, tag, due } = req.query;
     assertEnum(status, TASK_STATUSES, 'status');
     assertEnum(priority, TASK_PRIORITIES, 'priority');
 
@@ -157,8 +187,31 @@ router.get(
     if (priority) { query += ' AND priority = ?'; params.push(priority); }
     if (due_date) { query += ' AND date(due_date) = date(?)'; params.push(due_date); }
 
+    // Full-text-ish substring search across title + description.
+    if (search) {
+      query += ' AND (title LIKE ? OR description LIKE ?)';
+      const like = `%${search}%`;
+      params.push(like, like);
+    }
+
+    // Tag membership (tags stored as a JSON array of strings).
+    if (tag) {
+      query += ' AND tags LIKE ?';
+      params.push(`%${JSON.stringify(String(tag))}%`);
+    }
+
+    // Relative due-date windows (server-local day boundaries).
+    if (due === 'overdue') {
+      query += " AND due_date IS NOT NULL AND date(due_date) < date('now','localtime') AND status != 'completed'";
+    } else if (due === 'today') {
+      query += " AND date(due_date) = date('now','localtime')";
+    } else if (due === 'week') {
+      query += " AND date(due_date) >= date('now','localtime') AND date(due_date) < date('now','localtime','+7 days')";
+    }
+
     query += ' ORDER BY created_at ASC';
-    res.json(await db.all(query, params));
+    const rows = await db.all(query, params);
+    res.json(rows.map(serializeTask));
   })
 );
 
@@ -166,12 +219,15 @@ router.get(
 router.post(
   '/',
   asyncHandler(async (req, res) => {
-    const { title, description, list_id, parent_id, priority, due_date } = req.body;
+    const { title, description, list_id, parent_id, priority, due_date, recurrence, tags } = req.body;
 
     assertNonEmptyString(title, 'title');
     assertNonEmptyString(list_id, 'list_id');
     assertEnum(priority, TASK_PRIORITIES, 'priority');
     assertDueDate(due_date);
+    const normalizedRecurrence = assertRecurrence(recurrence) ?? null;
+    const normalizedTags = assertTags(tags);
+    const tagsJson = normalizedTags && normalizedTags.length ? JSON.stringify(normalizedTags) : null;
 
     const db = await getDb();
     const id = uuidv4();
@@ -183,9 +239,9 @@ router.post(
       await assertListExists(tx, list_id);
       await assertValidParent(tx, parent_id ?? null, null, list_id);
       await tx.run(
-        `INSERT INTO tasks (id, list_id, parent_id, title, description, priority, due_date)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [id, list_id, parent_id || null, title, description || '', priority || 'medium', due_date || null]
+        `INSERT INTO tasks (id, list_id, parent_id, title, description, priority, due_date, recurrence, tags)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, list_id, parent_id || null, title, description || '', priority || 'medium', due_date || null, normalizedRecurrence, tagsJson]
       );
 
       // A new pending child can flip a previously-completed parent back to pending.
@@ -198,7 +254,7 @@ router.post(
     });
 
     if (configured) await flushOutbox();
-    res.status(201).json(await db.get('SELECT * FROM tasks WHERE id = ?', [id]));
+    res.status(201).json(serializeTask(await db.get('SELECT * FROM tasks WHERE id = ?', [id])));
   })
 );
 
@@ -210,7 +266,7 @@ router.put(
     // gcal_event_id is intentionally NOT accepted from clients — only the
     // calendar service may set it. Otherwise a caller could bind a task to an
     // arbitrary Google event and have us patch/delete events they don't own.
-    const { title, description, status, priority, due_date, list_id, parent_id } = req.body;
+    const { title, description, status, priority, due_date, list_id, parent_id, recurrence, tags } = req.body;
 
     assertEnum(status, TASK_STATUSES, 'status');
     assertEnum(priority, TASK_PRIORITIES, 'priority');
@@ -219,6 +275,11 @@ router.put(
     const dueDateProvided = due_date !== undefined;
     const normalizedDueDate = due_date === '' ? null : due_date;
     if (dueDateProvided) assertDueDate(normalizedDueDate);
+    const recurrenceProvided = recurrence !== undefined;
+    const normalizedRecurrence = assertRecurrence(recurrence);
+    const tagsProvided = tags !== undefined;
+    const normalizedTags = assertTags(tags);
+    const tagsJson = normalizedTags && normalizedTags.length ? JSON.stringify(normalizedTags) : null;
 
     const db = await getDb();
     const configured = await isSyncConfigured();
@@ -251,6 +312,8 @@ router.put(
       if (dueDateProvided) setField('due_date', normalizedDueDate);
       if (list_id !== undefined) setField('list_id', list_id);
       if (parent_id !== undefined) setField('parent_id', parent_id);
+      if (recurrenceProvided) setField('recurrence', normalizedRecurrence);
+      if (tagsProvided) setField('tags', tagsJson);
       if (removingDueDate) sets.push('gcal_event_id = NULL', 'gcal_updated_at = NULL');
 
       const statusChanged = status !== undefined && status !== task.status;
@@ -281,6 +344,25 @@ router.put(
       if (parentChanged) { parentsToRollup.add(task.parent_id); parentsToRollup.add(parent_id); }
       for (const p of parentsToRollup) if (p) await rollupAncestors(tx, p);
 
+      // Recurring task completed → spawn the next occurrence (clone with the
+      // due date advanced). Based on the post-update row so any same-request
+      // edits (priority, tags…) carry over.
+      let spawnedId = null;
+      if (statusChanged && status === 'completed') {
+        const cur = await tx.get('SELECT * FROM tasks WHERE id = ?', [id]);
+        const next = nextDueDate(cur.due_date, cur.recurrence);
+        if (next) {
+          spawnedId = uuidv4();
+          await tx.run(
+            `INSERT INTO tasks (id, list_id, parent_id, title, description, priority, due_date, recurrence, tags)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [spawnedId, cur.list_id, cur.parent_id, cur.title, cur.description, cur.priority, next, cur.recurrence, cur.tags]
+          );
+          // A fresh pending occurrence under a parent re-opens that parent.
+          if (cur.parent_id) await rollupAncestors(tx, cur.parent_id);
+        }
+      }
+
       // Queue calendar sync for every task whose status may have changed (self +
       // descendants + affected ancestor chains), plus a delete for the event
       // detached when a due date is removed. Atomic with the update above.
@@ -288,6 +370,7 @@ router.put(
         const upsertIds = new Set();
         // The edited task is re-synced unless it just lost its due date.
         if (!removingDueDate) upsertIds.add(id);
+        if (spawnedId) upsertIds.add(spawnedId);
         if (statusChanged) {
           for (const d of await descendantIds(tx, id)) upsertIds.add(d);
           for (const a of await ancestorIds(tx, task.parent_id)) upsertIds.add(a);
@@ -306,7 +389,7 @@ router.put(
     });
 
     if (configured) await flushOutbox();
-    res.json(await db.get('SELECT * FROM tasks WHERE id = ?', [id]));
+    res.json(serializeTask(await db.get('SELECT * FROM tasks WHERE id = ?', [id])));
   })
 );
 

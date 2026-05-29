@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Calendar, Trash2, Edit3, ChevronDown, ChevronRight, Plus, HelpCircle } from 'lucide-react';
+import { Calendar, Trash2, Edit3, ChevronDown, ChevronRight, Plus, HelpCircle, Repeat } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatLocalDate } from '../dateUtils';
 
@@ -39,6 +39,8 @@ export default function TaskItem({
 
   // Convert priority code to human readable text
   const priorityLabels = { low: 'Nízká', medium: 'Střední', high: 'Vysoká', urgent: 'Kritická' };
+  const recurrenceLabels = { daily: 'Denně', weekly: 'Týdně', monthly: 'Měsíčně' };
+  const tags = Array.isArray(task.tags) ? task.tags : [];
 
   return (
     <div className="flex flex-col select-none" id={`task-node-${task.id}`}>
@@ -103,6 +105,27 @@ export default function TaskItem({
                   <span>{formatLocalDate(task.due_date)}</span>
                 </span>
               )}
+
+              {/* Recurrence badge inline */}
+              {task.recurrence && task.recurrence !== 'none' && (
+                <span
+                  className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-violet-500/10 border border-violet-500/20 text-violet-400 flex items-center gap-1"
+                  title={`Opakování: ${recurrenceLabels[task.recurrence] || task.recurrence}`}
+                >
+                  <Repeat size={10} />
+                  <span>{recurrenceLabels[task.recurrence] || task.recurrence}</span>
+                </span>
+              )}
+
+              {/* Tag chips inline */}
+              {tags.map((t) => (
+                <span
+                  key={t}
+                  className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800/60 border border-border-light dark:border-border-dark text-slate-500 dark:text-slate-400"
+                >
+                  #{t}
+                </span>
+              ))}
 
               {/* Google Sync Badge inline */}
               {task.gcal_event_id && (

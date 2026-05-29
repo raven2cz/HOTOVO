@@ -67,6 +67,12 @@ const openApiSpec = {
             type: ['string', 'null'],
             description: 'YYYY-MM-DD (celý den) nebo plné ISO 8601 s časovou zónou.'
           },
+          recurrence: {
+            type: ['string', 'null'],
+            enum: ['daily', 'weekly', 'monthly', null],
+            description: 'Opakování; dokončení vytvoří další výskyt (vyžaduje due_date).'
+          },
+          tags: { type: 'array', items: { type: 'string' }, description: 'Štítky napříč projekty.' },
           gcal_event_id: { type: ['string', 'null'], description: 'Spravuje server; nezasílat.' },
           created_at: { type: 'string' },
           updated_at: { type: 'string' }
@@ -109,7 +115,10 @@ const openApiSpec = {
           { name: 'list_id', in: 'query', schema: { type: 'string' } },
           { name: 'status', in: 'query', schema: { type: 'string', enum: ['pending', 'completed'] } },
           { name: 'priority', in: 'query', schema: { type: 'string', enum: ['low', 'medium', 'high', 'urgent'] } },
-          { name: 'due_date', in: 'query', schema: { type: 'string' }, description: 'Den YYYY-MM-DD' }
+          { name: 'due_date', in: 'query', schema: { type: 'string' }, description: 'Den YYYY-MM-DD' },
+          { name: 'search', in: 'query', schema: { type: 'string' }, description: 'Hledání v názvu/popisu' },
+          { name: 'tag', in: 'query', schema: { type: 'string' }, description: 'Filtrovat podle štítku' },
+          { name: 'due', in: 'query', schema: { type: 'string', enum: ['today', 'week', 'overdue'] }, description: 'Relativní časové okno' }
         ],
         responses: {
           200: { description: 'Úkoly', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/Task' } } } } },
@@ -131,10 +140,12 @@ const openApiSpec = {
                   parent_id: { type: 'string', format: 'uuid', description: 'Pro podúkol; musí být ve stejném projektu.' },
                   description: { type: 'string' },
                   priority: { type: 'string', enum: ['low', 'medium', 'high', 'urgent'], default: 'medium' },
-                  due_date: { type: 'string', description: 'YYYY-MM-DD nebo ISO 8601 s časovou zónou' }
+                  due_date: { type: 'string', description: 'YYYY-MM-DD nebo ISO 8601 s časovou zónou' },
+                  recurrence: { type: 'string', enum: ['daily', 'weekly', 'monthly', 'none'] },
+                  tags: { type: 'array', items: { type: 'string' } }
                 }
               },
-              example: { title: 'Zavolat makléři', list_id: '<uuid>', priority: 'high', due_date: '2026-06-01' }
+              example: { title: 'Zaplatit nájem', list_id: '<uuid>', priority: 'high', due_date: '2026-06-01', recurrence: 'monthly', tags: ['finance'] }
             }
           }
         },
@@ -159,6 +170,8 @@ const openApiSpec = {
                   status: { type: 'string', enum: ['pending', 'completed'] },
                   priority: { type: 'string', enum: ['low', 'medium', 'high', 'urgent'] },
                   due_date: { type: ['string', 'null'], description: 'null/"" odebere termín' },
+                  recurrence: { type: ['string', 'null'], enum: ['daily', 'weekly', 'monthly', 'none', null] },
+                  tags: { type: ['array', 'null'], items: { type: 'string' } },
                   list_id: { type: 'string' },
                   parent_id: { type: ['string', 'null'] }
                 }

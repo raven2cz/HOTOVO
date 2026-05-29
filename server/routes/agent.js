@@ -17,13 +17,23 @@ router.get(
   '/state',
   asyncHandler(async (req, res) => {
     const db = await getDb();
-    const [lists, tasks] = await Promise.all([
+    const [lists, taskRows] = await Promise.all([
       db.all('SELECT id, name, color FROM lists ORDER BY name ASC'),
       db.all(
-        `SELECT id, list_id, parent_id, title, description, status, priority, due_date
+        `SELECT id, list_id, parent_id, title, description, status, priority, due_date, recurrence, tags
          FROM tasks ORDER BY created_at ASC`
       )
     ]);
+    // Parse the JSON tags column into an array for agents.
+    const tasks = taskRows.map((t) => {
+      let tags = [];
+      try {
+        if (t.tags) tags = JSON.parse(t.tags) || [];
+      } catch {
+        tags = [];
+      }
+      return { ...t, tags };
+    });
     res.json({
       generated_at: new Date().toISOString(),
       counts: {
@@ -66,6 +76,9 @@ sestavíš podle \`parent_id\`. Použij to na začátku, ať víš, co existuje.
 - \`priority\`: \`low\` | \`medium\` | \`high\` | \`urgent\`
 - \`due_date\`: \`YYYY-MM-DD\` (celý den) NEBO plné ISO 8601 s časovou zónou
   (např. \`2026-06-01T09:00:00Z\`). Jiné formáty server odmítne.
+- \`recurrence\`: \`daily\` | \`weekly\` | \`monthly\` | \`none\`. Dokončením
+  opakovaného úkolu (musí mít \`due_date\`) se automaticky vytvoří další výskyt.
+- \`tags\`: pole řetězců (štítky napříč projekty), např. \`["práce","urgent"]\`.
 
 ## Operace (to hlavní, co budeš dělat)
 1) Vytvořit úkol:
@@ -78,6 +91,8 @@ sestavíš podle \`parent_id\`. Použij to na začátku, ať víš, co existuje.
    \`DELETE /api/tasks/<id>\` — má-li podúkoly, přidej \`?confirm=true\` (jinak 400).
 4) Vypsat/filtrovat úkoly:
    \`GET /api/tasks?list_id=<id>&status=pending&priority=high&due_date=2026-06-01\`
+   - Hledání: \`?search=text\` (v názvu i popisu). Štítek: \`?tag=práce\`.
+   - Časové okno: \`?due=today\` | \`?due=week\` | \`?due=overdue\` (po termínu).
 5) Projekty: \`GET /api/lists\`, \`POST /api/lists\` \`{ "name": "...", "color": "#6366f1" }\`,
    \`DELETE /api/lists/<id>?confirm=true\` (smaže i úkoly v projektu).
 

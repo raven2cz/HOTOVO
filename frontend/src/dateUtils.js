@@ -18,3 +18,32 @@ export function parseLocalDate(value) {
 export function formatLocalDate(value, locale = 'cs-CZ') {
   return parseLocalDate(value).toLocaleDateString(locale);
 }
+
+function startOfToday() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+/** Due date is before today and the task isn't done. */
+export function isOverdue(value, status) {
+  if (!value || status === 'completed') return false;
+  return parseLocalDate(value) < startOfToday();
+}
+
+export function isToday(value) {
+  if (!value) return false;
+  const d = parseLocalDate(value);
+  const t = startOfToday();
+  return d.getFullYear() === t.getFullYear() && d.getMonth() === t.getMonth() && d.getDate() === t.getDate();
+}
+
+/** Due within [today, today+7days). */
+export function isThisWeek(value) {
+  if (!value) return false;
+  const d = parseLocalDate(value);
+  const start = startOfToday();
+  const end = new Date(start);
+  end.setDate(end.getDate() + 7);
+  return d >= start && d < end;
+}

@@ -6,10 +6,12 @@ import CommandPalette from './components/CommandPalette';
 import SettingsModal from './components/SettingsModal';
 import Logo from './components/Logo';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  FolderPlus, Settings, CheckCircle2, ListTodo, Plus, Calendar as CalendarIcon, 
-  Trash2, SlidersHorizontal, Sun, Moon, Info, HelpCircle, Key, FileCode, Check
+import {
+  FolderPlus, Settings, CheckCircle2, ListTodo, Plus, Calendar as CalendarIcon,
+  Trash2, SlidersHorizontal, Sun, Moon, Info, HelpCircle, Key, FileCode, Check,
+  Repeat, Search, Tag, X
 } from 'lucide-react';
+import { isOverdue, isToday, isThisWeek } from './dateUtils';
 
 export default function App() {
   const [lists, setLists] = useState([]);
@@ -21,6 +23,9 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(true);
   const [filterPriority, setFilterPriority] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all'); // 'all', 'pending', 'completed'
+  const [searchTerm, setSearchTerm] = useState('');
+  const [dueFilter, setDueFilter] = useState('all'); // 'all', 'today', 'week', 'overdue'
+  const [tagFilter, setTagFilter] = useState('all');
   
   // UI Modal/Drawer states
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -31,6 +36,7 @@ export default function App() {
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskPriority, setNewTaskPriority] = useState('medium');
   const [newTaskDueDate, setNewTaskDueDate] = useState('');
+  const [newTaskRecurrence, setNewTaskRecurrence] = useState('none');
   
   const [newListName, setNewListName] = useState('');
   const [newListColor, setNewListColor] = useState('#6366f1');
@@ -130,12 +136,14 @@ export default function App() {
         title: newTaskTitle,
         list_id: selectedListId,
         priority: newTaskPriority,
-        due_date: newTaskDueDate || null
+        due_date: newTaskDueDate || null,
+        recurrence: newTaskRecurrence
       };
-      
+
       await api.createTask(taskData);
       setNewTaskTitle('');
       setNewTaskDueDate('');
+      setNewTaskRecurrence('none');
       loadData();
     } catch (err) {
       alert(err.message);
@@ -204,7 +212,9 @@ export default function App() {
         description: editingTask.description,
         priority: editingTask.priority,
         due_date: editingTask.due_date || null,
-        list_id: editingTask.list_id
+        list_id: editingTask.list_id,
+        recurrence: editingTask.recurrence || 'none',
+        tags: Array.isArray(editingTask.tags) ? editingTask.tags : []
       });
       setEditingTask(null);
       loadData();
@@ -224,16 +234,38 @@ export default function App() {
     }
   };
 
+  // All distinct tags in the current project (for the tag filter dropdown).
+  const availableTags = Array.from(
+    new Set(
+      tasks
+        .filter(t => t.list_id === selectedListId)
+        .flatMap(t => (Array.isArray(t.tags) ? t.tags : []))
+    )
+  ).sort((a, b) => a.localeCompare(b, 'cs'));
+
   // Get tasks that match filtering, keeping the tree intact: a matching subtask
   // also pulls in its ancestors so it isn't hidden under a non-matching parent.
   const getFilteredTasks = () => {
     const listTasks = tasks.filter(t => t.list_id === selectedListId);
-    if (filterPriority === 'all' && filterStatus === 'all') return listTasks;
+    const noFilters =
+      filterPriority === 'all' && filterStatus === 'all' && dueFilter === 'all' &&
+      tagFilter === 'all' && !searchTerm.trim();
+    if (noFilters) return listTasks;
 
-    const matches = listTasks.filter(t =>
-      (filterPriority === 'all' || t.priority === filterPriority) &&
-      (filterStatus === 'all' || t.status === filterStatus)
-    );
+    const q = searchTerm.trim().toLowerCase();
+    const matches = listTasks.filter(t => {
+      if (filterPriority !== 'all' && t.priority !== filterPriority) return false;
+      if (filterStatus !== 'all' && t.status !== filterStatus) return false;
+      if (tagFilter !== 'all' && !(Array.isArray(t.tags) && t.tags.includes(tagFilter))) return false;
+      if (dueFilter === 'today' && !isToday(t.due_date)) return false;
+      if (dueFilter === 'week' && !isThisWeek(t.due_date)) return false;
+      if (dueFilter === 'overdue' && !isOverdue(t.due_date, t.status)) return false;
+      if (q) {
+        const hay = `${t.title} ${t.description || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
 
     const byId = new Map(listTasks.map(t => [t.id, t]));
     const keep = new Set(matches.map(t => t.id));
@@ -596,6 +628,20 @@ export default function App() {
                       className="bg-slate-200 dark:bg-slate-900 border border-border-light dark:border-border-dark text-xs font-semibold px-2.5 py-1.5 rounded-xl focus:outline-none text-slate-600 dark:text-slate-300"
                     />
 
+                    {/* Recurrence select */}
+                    <select
+                      value={newTaskRecurrence}
+                      onChange={(e) => setNewTaskRecurrence(e.target.value)}
+                      title="Opakování"
+                      aria-label="Opakování úkolu"
+                      className="bg-slate-200 dark:bg-slate-900 border border-border-light dark:border-border-dark text-xs font-semibold px-2.5 py-1.5 rounded-xl focus:outline-none"
+                    >
+                      <option value="none">🔁 Bez opakování</option>
+                      <option value="daily">🔁 Denně</option>
+                      <option value="weekly">🔁 Týdně</option>
+                      <option value="monthly">🔁 Měsíčně</option>
+                    </select>
+
                     <button
                       type="submit"
                       className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl px-4 py-2.5 text-xs flex items-center gap-1.5 transition-all shadow-glow-primary"
@@ -607,6 +653,46 @@ export default function App() {
                 </form>
               )}
 
+              {/* Search bar + relative due-date quick filters */}
+              <div className="flex flex-col sm:flex-row gap-3 px-1">
+                <div className="flex items-center gap-2 flex-1 bg-slate-200 dark:bg-slate-900 border border-border-light dark:border-border-dark rounded-xl px-3 py-1.5">
+                  <Search size={14} className="text-slate-400 flex-shrink-0" />
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Hledat úkoly..."
+                    aria-label="Hledat úkoly"
+                    className="flex-1 bg-transparent border-none text-xs focus:outline-none text-slate-800 dark:text-slate-200 placeholder-slate-500"
+                  />
+                  {searchTerm && (
+                    <button onClick={() => setSearchTerm('')} aria-label="Vymazat hledání" className="text-slate-400 hover:text-slate-200">
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+                <div className="flex rounded-xl bg-slate-200 dark:bg-slate-900 p-1 border border-border-light dark:border-border-dark">
+                  {[
+                    { k: 'all', l: 'Vše' },
+                    { k: 'today', l: 'Dnes' },
+                    { k: 'week', l: 'Týden' },
+                    { k: 'overdue', l: 'Po termínu' }
+                  ].map(({ k, l }) => (
+                    <button
+                      key={k}
+                      onClick={() => setDueFilter(k)}
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                        dueFilter === k
+                          ? (k === 'overdue' ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white shadow-glow-primary')
+                          : 'text-slate-500 hover:text-slate-300'
+                      }`}
+                    >
+                      {l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Task Filtering Options */}
               <div className="flex flex-wrap items-center justify-between gap-3 px-1">
                 <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wider">
@@ -614,7 +700,7 @@ export default function App() {
                   <span>Filtrovat výsledky</span>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   {/* Status selection buttons */}
                   <div className="flex rounded-xl bg-slate-200 dark:bg-slate-900 p-1 border border-border-light dark:border-border-dark">
                     {['all', 'pending', 'completed'].map((st) => {
@@ -624,8 +710,8 @@ export default function App() {
                           key={st}
                           onClick={() => setFilterStatus(st)}
                           className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-                            filterStatus === st 
-                              ? 'bg-indigo-600 text-white shadow-glow-primary' 
+                            filterStatus === st
+                              ? 'bg-indigo-600 text-white shadow-glow-primary'
                               : 'text-slate-500 hover:text-slate-300'
                           }`}
                         >
@@ -634,6 +720,21 @@ export default function App() {
                       );
                     })}
                   </div>
+
+                  {/* Tag filter (only when the project has tags) */}
+                  {availableTags.length > 0 && (
+                    <select
+                      value={tagFilter}
+                      onChange={(e) => setTagFilter(e.target.value)}
+                      aria-label="Filtrovat podle štítku"
+                      className="bg-slate-200 dark:bg-slate-900 border border-border-light dark:border-border-dark text-xs font-semibold px-2.5 py-1 rounded-xl focus:outline-none"
+                    >
+                      <option value="all">Všechny štítky</option>
+                      {availableTags.map((t) => (
+                        <option key={t} value={t}>#{t}</option>
+                      ))}
+                    </select>
+                  )}
 
                   {/* Priority Select filter */}
                   <select
@@ -782,6 +883,39 @@ export default function App() {
                       className="bg-slate-200 dark:bg-slate-900 border border-border-light dark:border-border-dark rounded-xl px-3.5 py-2 text-sm focus:outline-none text-slate-600 dark:text-slate-300"
                     />
                   </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wide">Opakování</label>
+                  <select
+                    value={editingTask.recurrence || 'none'}
+                    onChange={(e) => setEditingTask({ ...editingTask, recurrence: e.target.value })}
+                    className="bg-slate-200 dark:bg-slate-900 border border-border-light dark:border-border-dark rounded-xl px-3.5 py-2 text-sm focus:outline-none"
+                  >
+                    <option value="none">Bez opakování</option>
+                    <option value="daily">🔁 Denně</option>
+                    <option value="weekly">🔁 Týdně</option>
+                    <option value="monthly">🔁 Měsíčně</option>
+                  </select>
+                  {editingTask.recurrence && editingTask.recurrence !== 'none' && !editingTask.due_date && (
+                    <span className="text-[11px] text-amber-500">Opakování se projeví až po nastavení termínu.</span>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wide">Štítky (oddělené čárkou)</label>
+                  <input
+                    type="text"
+                    value={Array.isArray(editingTask.tags) ? editingTask.tags.join(', ') : ''}
+                    onChange={(e) =>
+                      setEditingTask({
+                        ...editingTask,
+                        tags: e.target.value.split(',').map((s) => s.trim()).filter(Boolean)
+                      })
+                    }
+                    placeholder="např. práce, urgent, dům"
+                    className="bg-slate-200 dark:bg-slate-900 border border-border-light dark:border-border-dark rounded-xl px-3.5 py-2 text-sm focus:outline-none"
+                  />
                 </div>
 
                 {/* Status Indicator */}
