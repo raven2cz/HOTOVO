@@ -197,10 +197,11 @@ router.get(
     if (priority) { query += ' AND priority = ?'; params.push(priority); }
     if (due_date) { query += ' AND date(due_date) = date(?)'; params.push(due_date); }
 
-    // Full-text-ish substring search across title + description.
+    // Full-text-ish substring search across title + description. Escape LIKE
+    // wildcards so the query keeps literal-substring semantics.
     if (search) {
-      query += ' AND (title LIKE ? OR description LIKE ?)';
-      const like = `%${search}%`;
+      const like = `%${String(search).replace(/[\\%_]/g, '\\$&')}%`;
+      query += " AND (title LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')";
       params.push(like, like);
     }
 
@@ -348,6 +349,26 @@ router.put(
         );
       }
 
+      // Capture which tasks ACTUALLY transition to completed in this operation
+      // (the target + descendants that were not already completed) BEFORE the
+      // cascade flips them. Only these should spawn a next occurrence — otherwise
+      // re-completing an already-done parent would respawn old subtasks.
+      const transitioned = new Set();
+      if (statusChanged && status === 'completed') {
+        transitioned.add(id);
+        const pendingDesc = await tx.all(
+          `WITH RECURSIVE d(id) AS (
+             SELECT ?
+             UNION ALL
+             SELECT t.id FROM tasks t JOIN d ON t.parent_id = d.id
+           )
+           SELECT t.id FROM tasks t JOIN d ON t.id = d.id
+           WHERE t.id != ? AND t.status != 'completed'`,
+          [id, id]
+        );
+        for (const r of pendingDesc) transitioned.add(r.id);
+      }
+
       if (statusChanged) await cascadeStatusDown(tx, id, status);
 
       // Recompute every ancestor chain affected by this change.
@@ -356,13 +377,12 @@ router.put(
       if (parentChanged) { parentsToRollup.add(task.parent_id); parentsToRollup.add(parent_id); }
       for (const p of parentsToRollup) if (p) await rollupAncestors(tx, p);
 
-      // Completing a (sub)tree → spawn the next occurrence for EVERY recurring,
-      // dated task that just became completed (the task itself and any recurring
-      // descendants the cascade completed), so cascade-completed recurring
-      // subtasks don't silently stop recurring. Rows are captured before any
-      // insert, so the new pending occurrences can't be re-selected (no loop).
+      // Spawn the next occurrence for each recurring, dated task that JUST became
+      // completed (self + cascade-completed recurring descendants). Rows are
+      // captured before any insert, so new pending occurrences can't be
+      // re-selected (no loop).
       const spawnedIds = [];
-      if (statusChanged && status === 'completed') {
+      if (transitioned.size) {
         const recurring = await tx.all(
           `WITH RECURSIVE d(id) AS (
              SELECT ?
@@ -374,6 +394,7 @@ router.put(
           [id]
         );
         for (const cur of recurring) {
+          if (!transitioned.has(cur.id)) continue;
           const next = nextDueDate(cur.due_date, cur.recurrence);
           if (!next) continue;
           const sid = uuidv4();
