@@ -1,6 +1,5 @@
 import express from 'express';
 import { requireAuth } from '../auth.js';
-import { PUBLIC_BASE_URL } from '../config.js';
 
 const router = express.Router();
 
@@ -27,7 +26,9 @@ const openApiSpec = {
       'volitelně synchronizuje s Google Kalendářem. Pro rychlý start agenta použijte ' +
       '`GET /api/agent/guide` (stručný návod) a `GET /api/agent/state` (snapshot stavu).'
   },
-  servers: [{ url: PUBLIC_BASE_URL, description: 'HOTOVO server' }],
+  // Relative server URL: clients resolve it against the host they fetched the
+  // spec from, so a remote agent never gets pointed at its own localhost.
+  servers: [{ url: '/', description: 'Tento HOTOVO server' }],
   components: {
     securitySchemes: {
       BearerAuth: {
@@ -236,7 +237,6 @@ router.get('/openapi.json', (req, res) => res.json(openApiSpec));
 
 // Human-/agent-readable landing page.
 router.get('/', (req, res) => {
-  const base = PUBLIC_BASE_URL;
   res.send(`<!doctype html>
     <html lang="cs">
       <head>
@@ -278,7 +278,7 @@ router.get('/', (req, res) => {
         <div class="ep"><span class="m">GET</span> <code>/api/lists</code> — projekty</div>
 
         <h2>Strojová specifikace</h2>
-        <p>OpenAPI 3.1: <a href="${base}/api/docs/openapi.json">${base}/api/docs/openapi.json</a></p>
+        <p>OpenAPI 3.1: <a href="/api/docs/openapi.json">/api/docs/openapi.json</a></p>
       </body>
     </html>`);
 });

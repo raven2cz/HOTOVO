@@ -3,7 +3,6 @@ import express from 'express';
 import { getDb } from '../db.js';
 import { requireAuth } from '../auth.js';
 import { asyncHandler } from '../util/http.js';
-import { PUBLIC_BASE_URL } from '../config.js';
 
 const router = express.Router();
 
@@ -45,13 +44,13 @@ router.get(
  * explicit, example-driven, with the few rules that trip agents up.
  */
 function buildGuide() {
-  const base = PUBLIC_BASE_URL;
   return `# HOTOVO — průvodce pro AI agenty
 
 Jsi napojen na HOTOVO, aplikaci na správu úkolů. Pracuješ přes REST API.
 
 ## Připojení
-- Základní URL: ${base}
+- Základní URL: stejný původ (origin), ze kterého jsi načetl tento návod.
+  Všechny cesty níže jsou relativní a začínají \`/api/…\`.
 - Autentizace (nelokální klient): hlavička \`Authorization: Bearer <TOKEN>\`
 - Vždy posílej \`Content-Type: application/json\` u POST/PUT.
 
@@ -90,7 +89,7 @@ sestavíš podle \`parent_id\`. Použij to na začátku, ať víš, co existuje.
 - Po zápisu si stav klidně znovu načti přes \`GET /api/agent/state\`.
 
 ## Strojová specifikace
-OpenAPI 3.1: \`GET ${base}/api/docs/openapi.json\`
+OpenAPI 3.1: \`GET /api/docs/openapi.json\`
 `;
 }
 
