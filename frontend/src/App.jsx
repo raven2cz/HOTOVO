@@ -49,17 +49,30 @@ export default function App() {
   // Tasks with an in-flight status toggle (prevents double-click double-submit,
   // which for a recurring task would advance the due date twice).
   const togglingTasks = useRef(new Set());
+  // In-list search box (focused with the "/" shortcut).
+  const searchInputRef = useRef(null);
 
   // App initialization
   useEffect(() => {
     // Load initial data
     loadData();
 
-    // Keydown listener for Command Palette (Ctrl+K or Cmd+K)
+    // Two-tier search keyboard model:
+    //  - Ctrl/Cmd+K → global Command Palette (jump to any project/task/action)
+    //  - "/"        → focus the in-list filter (search within the current project)
     const handleGlobalKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setIsCommandPaletteOpen((prev) => !prev);
+        return;
+      }
+      if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const el = e.target;
+        const typing = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
+        if (!typing && searchInputRef.current) {
+          e.preventDefault();
+          searchInputRef.current.focus();
+        }
       }
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
@@ -455,8 +468,11 @@ export default function App() {
             <div className="bg-indigo-500/5 border border-indigo-500/10 rounded-2xl p-4 flex gap-3 text-xs text-indigo-300 mb-1">
               <Info size={20} className="flex-shrink-0" />
               <div>
-                <p className="font-bold mb-1">Klávesová zkratka</p>
-                <p className="opacity-85 text-[11px] leading-relaxed">Stiskněte <kbd className="bg-slate-900 border border-border-dark px-1 py-0.5 rounded font-mono text-[10px] text-white">Ctrl + K</kbd> pro rychlé hledání, tvorbu a přepínání.</p>
+                <p className="font-bold mb-1">Klávesové zkratky</p>
+                <p className="opacity-85 text-[11px] leading-relaxed">
+                  <kbd className="bg-slate-900 border border-border-dark px-1 py-0.5 rounded font-mono text-[10px] text-white">Ctrl + K</kbd> přeskočí kamkoli (projekty, úkoly, akce).{' '}
+                  <kbd className="bg-slate-900 border border-border-dark px-1 py-0.5 rounded font-mono text-[10px] text-white">/</kbd> filtruje úkoly v tomto projektu.
+                </p>
               </div>
             </div>
 
@@ -674,17 +690,20 @@ export default function App() {
                 <div className="flex items-center gap-2 flex-1 bg-slate-200 dark:bg-slate-900 border border-border-light dark:border-border-dark rounded-xl px-3 py-1.5">
                   <Search size={14} className="text-slate-400 flex-shrink-0" />
                   <input
+                    ref={searchInputRef}
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Hledat úkoly..."
-                    aria-label="Hledat úkoly"
+                    placeholder="Filtrovat úkoly v projektu..."
+                    aria-label="Filtrovat úkoly v tomto projektu"
                     className="flex-1 bg-transparent border-none text-xs focus:outline-none text-slate-800 dark:text-slate-200 placeholder-slate-500"
                   />
-                  {searchTerm && (
+                  {searchTerm ? (
                     <button onClick={() => setSearchTerm('')} aria-label="Vymazat hledání" className="text-slate-400 hover:text-slate-200">
                       <X size={13} />
                     </button>
+                  ) : (
+                    <kbd className="hidden sm:inline-block px-1.5 py-0.5 rounded border border-border-light dark:border-border-dark bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-400 font-mono">/</kbd>
                   )}
                 </div>
                 <div className="flex rounded-xl bg-slate-200 dark:bg-slate-900 p-1 border border-border-light dark:border-border-dark">
