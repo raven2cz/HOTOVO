@@ -174,14 +174,14 @@ router.post(
     assertDueDate(due_date);
 
     const db = await getDb();
-    await assertListExists(db, list_id);
-    await assertValidParent(db, parent_id ?? null, null, list_id);
-
     const id = uuidv4();
     const configured = await isSyncConfigured();
 
-    // Insert, roll up ancestors, and queue calendar work atomically.
+    // Validate references AND insert in the same transaction so a concurrent
+    // change can't invalidate the checks between validation and write.
     await withTransaction(async (tx) => {
+      await assertListExists(tx, list_id);
+      await assertValidParent(tx, parent_id ?? null, null, list_id);
       await tx.run(
         `INSERT INTO tasks (id, list_id, parent_id, title, description, priority, due_date)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -221,41 +221,42 @@ router.put(
     if (dueDateProvided) assertDueDate(normalizedDueDate);
 
     const db = await getDb();
-    const task = await db.get('SELECT * FROM tasks WHERE id = ?', [id]);
-    if (!task) throw notFound('Úkol nebyl nalezen.');
-
-    const effectiveListId = list_id !== undefined ? list_id : task.list_id;
-    if (list_id !== undefined) await assertListExists(db, list_id);
-    // Validate the effective parent whenever parent or list changes, so a task
-    // can never end up nested under a parent in a different project.
-    const effectiveParentId = parent_id !== undefined ? parent_id : task.parent_id;
-    if (parent_id !== undefined || list_id !== undefined) {
-      await assertValidParent(db, effectiveParentId, id, effectiveListId);
-    }
-
-    const removingDueDate = dueDateProvided && normalizedDueDate === null;
-
-    const sets = ["updated_at = datetime('now')"];
-    const params = [];
-    const setField = (column, value) => { sets.push(`${column} = ?`); params.push(value); };
-
-    if (title !== undefined) { assertNonEmptyString(title, 'title'); setField('title', title); }
-    if (description !== undefined) setField('description', description);
-    if (status !== undefined) setField('status', status);
-    if (priority !== undefined) setField('priority', priority);
-    if (dueDateProvided) setField('due_date', normalizedDueDate);
-    if (list_id !== undefined) setField('list_id', list_id);
-    if (parent_id !== undefined) setField('parent_id', parent_id);
-    if (removingDueDate) sets.push('gcal_event_id = NULL', 'gcal_updated_at = NULL');
-
-    const statusChanged = status !== undefined && status !== task.status;
-    const parentChanged = parent_id !== undefined && parent_id !== task.parent_id;
-    const listChanged = list_id !== undefined && list_id !== task.list_id;
     const configured = await isSyncConfigured();
 
-    // Apply the update, status/structure propagation, AND the calendar-sync
-    // queue entries atomically on an isolated transaction connection.
+    // Read the task, validate references, and write — all inside one
+    // transaction. Doing the existence/cycle checks against the SAME connection
+    // immediately before the write closes the TOCTOU window where two concurrent
+    // re-parents could validate against the old tree and then form a cycle.
     await withTransaction(async (tx) => {
+      const task = await tx.get('SELECT * FROM tasks WHERE id = ?', [id]);
+      if (!task) throw notFound('Úkol nebyl nalezen.');
+
+      const effectiveListId = list_id !== undefined ? list_id : task.list_id;
+      if (list_id !== undefined) await assertListExists(tx, list_id);
+      const effectiveParentId = parent_id !== undefined ? parent_id : task.parent_id;
+      if (parent_id !== undefined || list_id !== undefined) {
+        await assertValidParent(tx, effectiveParentId, id, effectiveListId);
+      }
+
+      const removingDueDate = dueDateProvided && normalizedDueDate === null;
+
+      const sets = ["updated_at = datetime('now')"];
+      const params = [];
+      const setField = (column, value) => { sets.push(`${column} = ?`); params.push(value); };
+
+      if (title !== undefined) { assertNonEmptyString(title, 'title'); setField('title', title); }
+      if (description !== undefined) setField('description', description);
+      if (status !== undefined) setField('status', status);
+      if (priority !== undefined) setField('priority', priority);
+      if (dueDateProvided) setField('due_date', normalizedDueDate);
+      if (list_id !== undefined) setField('list_id', list_id);
+      if (parent_id !== undefined) setField('parent_id', parent_id);
+      if (removingDueDate) sets.push('gcal_event_id = NULL', 'gcal_updated_at = NULL');
+
+      const statusChanged = status !== undefined && status !== task.status;
+      const parentChanged = parent_id !== undefined && parent_id !== task.parent_id;
+      const listChanged = list_id !== undefined && list_id !== task.list_id;
+
       await tx.run(`UPDATE tasks SET ${sets.join(', ')} WHERE id = ?`, [...params, id]);
 
       // Moving a task to another project moves its whole subtree, keeping the

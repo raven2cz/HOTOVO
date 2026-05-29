@@ -53,11 +53,12 @@ export async function enqueueDelete(eventId, conn) {
  * not configured, leaving entries queued until the user connects.
  */
 export async function drainOutbox() {
+  // Claim the drain slot synchronously (before any await) so two callers can
+  // never both proceed and double-insert Google events.
   if (draining) return { skipped: 'busy' };
-  if (!(await isSyncConfigured())) return { skipped: 'not_connected' };
-
   draining = true;
   try {
+    if (!(await isSyncConfigured())) return { skipped: 'not_connected' };
     const db = await getDb();
     const rows = await db.all(
       `SELECT * FROM gcal_outbox
