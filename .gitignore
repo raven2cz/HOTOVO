@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build output
+frontend/dist/
+
+# Databases (runtime data — never commit)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.db.backup-*
+data/
+
+# Environment / secrets
+.env
+.env.local
+
+# Test / tooling artifacts
+test-results/
+playwright-report/
+.playwright/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/

@@ -1,0 +1,23 @@
+{
+  "name": "todo-list-app",
+  "version": "1.0.0",
+  "description": "2026-style Todo-List with AI Agent API and Google Calendar Sync",
+  "main": "server/index.js",
+  "scripts": {
+    "install:all": "npm install && cd server && npm install && cd ../frontend && npm install",
+    "build:frontend": "cd frontend && npm run build",
+    "start": "node server/index.js",
+    "dev:server": "nodemon server/index.js",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:frontend\"",
+    "test:backend": "cd server && NODE_ENV=test npm test",
+    "test:e2e": "NODE_ENV=test playwright test"
+  },
+  "dependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.43.0",
+    "nodemon": "^3.1.0"
+  }
+}

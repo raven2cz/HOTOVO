@@ -1,0 +1,34 @@
+# =====================================================================
+# AETHER TODO SYSTEMD SERVICE TEMPLATE
+# =====================================================================
+# Návod k instalaci:
+# 1. Upravte níže cesty k WorkingDirectory a ExecStart podle vaší instalace.
+# 2. Zkopírujte tento soubor do /etc/systemd/system/:
+#    sudo cp scripts/aether-todo.service /etc/systemd/system/
+# 3. Znovu načtěte konfiguraci systemd:
+#    sudo systemctl daemon-reload
+# 4. Povolte spuštění služby při startu systému:
+#    sudo systemctl enable aether-todo
+# 5. Spusťte službu okamžitě:
+#    sudo systemctl start aether-todo
+#
+# Diagnostika a logy:
+# - Zkontrolovat stav služby: sudo systemctl status aether-todo
+# - Zobrazit výpis logů:      sudo journalctl -u aether-todo -f
+# =====================================================================
+
+[Unit]
+Description=Aether Todo-List Service (2026 Webapp)
+After=network.target
+
+[Service]
+Type=simple
+User=box
+WorkingDirectory=/home/box/git/github/todo-list
+ExecStart=/usr/bin/node /home/box/git/github/todo-list/server/index.js
+Restart=always
+RestartSec=5
+Environment=PORT=3000 NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

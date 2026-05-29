@@ -1,0 +1,89 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply antialiased selection:bg-indigo-500/30 selection:text-indigo-200;
+  }
+}
+
+/* Glassmorphism Classes */
+.glass {
+  background: rgba(20, 29, 47, 0.45);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.light .glass {
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.15);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.3);
+}
+
+/* Premium Border Glows */
+.border-glow-indigo {
+  position: relative;
+}
+.border-glow-indigo::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(to right, #6366f1, #a855f7);
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.border-glow-indigo:hover::after {
+  opacity: 0.15;
+}
+
+/* Custom Glowing Background Circles */
+.glow-blob {
+  filter: blur(80px);
+  opacity: 0.15;
+  mix-blend-mode: screen;
+  pointer-events: none;
+  animation: blob-pulse 10s infinite alternate;
+}
+
+@keyframes blob-pulse {
+  0% {
+    transform: scale(1) translate(0px, 0px);
+  }
+  50% {
+    transform: scale(1.1) translate(15px, -15px);
+  }
+  100% {
+    transform: scale(0.9) translate(-10px, 10px);
+  }
+}
+
+/* Custom Checkbox Strike-through Animation */
+.checkbox-glow:checked ~ .task-title {
+  color: #64748b;
+  text-decoration: line-through;
+  transition: all 0.3s ease;
+}
