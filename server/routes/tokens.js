@@ -60,6 +60,14 @@ router.delete(
   })
 );
 
+/** Escape HTML so exported Markdown can't execute markup in HTML-enabled renderers. */
+function mdEscape(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 /** Neutralise spreadsheet formula injection in exported CSV cells. */
 function csvCell(value) {
   if (value === null || value === undefined) return '""';
@@ -92,15 +100,15 @@ router.get(
         const dueDate = task.due_date
           ? ` 📅 *${new Date(task.due_date).toLocaleDateString('cs-CZ')}*`
           : '';
-        let line = `${indent}- ${checkbox} ${priority} **${task.title}**${dueDate}\n`;
-        if (task.description) line += `${indent}  *${task.description}*\n`;
+        let line = `${indent}- ${checkbox} ${priority} **${mdEscape(task.title)}**${dueDate}\n`;
+        if (task.description) line += `${indent}  *${mdEscape(task.description)}*\n`;
         for (const child of childrenOf(task.id)) line += renderTask(child, depth + 1, seen);
         return line;
       };
 
       const seen = new Set();
       for (const list of lists) {
-        md += `## 📁 ${list.name}\n\n`;
+        md += `## 📁 ${mdEscape(list.name)}\n\n`;
         const roots = tasks.filter((t) => t.list_id === list.id && !t.parent_id);
         if (roots.length === 0) { md += '*Žádné úkoly*\n\n'; continue; }
         for (const task of roots) md += renderTask(task, 0, seen);

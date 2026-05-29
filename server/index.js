@@ -2,11 +2,10 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
 
-dotenv.config();
-
-import { PORT, HOST, CORS_ORIGINS, APP_ENV } from './config.js';
+// .env is loaded by ./config.js (via `import 'dotenv/config'`) before any
+// config value is read.
+import { PORT, HOST, CORS_ORIGINS } from './config.js';
 import { getDb } from './db.js';
 import { errorHandler } from './util/http.js';
 import tasksRouter from './routes/tasks.js';
@@ -35,8 +34,9 @@ app.use('/api/tokens', tokensRouter);
 app.use('/api/sync', syncRouter);
 app.use('/api/docs', docsRouter);
 
-// Health check (used by process supervisors / systemd watchdogs).
-app.get('/api/health', (req, res) => res.json({ status: 'ok', env: APP_ENV }));
+// Health check (used by process supervisors / systemd watchdogs). Intentionally
+// minimal — no runtime details for unauthenticated callers.
+app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 // Unmatched API routes return JSON 404 rather than the SPA shell.
 app.use('/api', (req, res) => res.status(404).json({ error: 'Endpoint nebyl nalezen.' }));

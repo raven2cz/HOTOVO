@@ -24,16 +24,20 @@ async function assertListExists(db, listId) {
 }
 
 /**
- * Validate a candidate parent for `taskId`. Ensures the parent exists and that
- * assigning it would not create a cycle (parent === self, or parent is a
- * descendant of the task). A cyclic tree would hang the recursive cascade.
+ * Validate a candidate parent for `taskId`. Ensures the parent exists, lives in
+ * the same list as the child (no cross-project nesting), and that assigning it
+ * would not create a cycle (parent === self, or parent is a descendant of the
+ * task). A cyclic tree would hang the recursive cascade.
  */
-async function assertValidParent(db, parentId, taskId) {
+async function assertValidParent(db, parentId, taskId, expectedListId) {
   if (parentId === null || parentId === undefined) return;
   if (parentId === taskId) throw badRequest('Úkol nemůže být svým vlastním rodičem.');
 
-  const parent = await db.get('SELECT id FROM tasks WHERE id = ?', [parentId]);
+  const parent = await db.get('SELECT id, list_id FROM tasks WHERE id = ?', [parentId]);
   if (!parent) throw badRequest('Rodičovský úkol neexistuje.');
+  if (expectedListId !== undefined && parent.list_id !== expectedListId) {
+    throw badRequest('Rodičovský úkol musí být ve stejném projektu jako podúkol.');
+  }
 
   if (taskId) {
     const cycle = await db.get(
@@ -131,7 +135,7 @@ router.post(
 
     const db = await getDb();
     await assertListExists(db, list_id);
-    await assertValidParent(db, parent_id ?? null, null);
+    await assertValidParent(db, parent_id ?? null, null, list_id);
 
     const id = uuidv4();
     await db.run(
@@ -170,8 +174,14 @@ router.put(
     const task = await db.get('SELECT * FROM tasks WHERE id = ?', [id]);
     if (!task) throw notFound('Úkol nebyl nalezen.');
 
+    const effectiveListId = list_id !== undefined ? list_id : task.list_id;
     if (list_id !== undefined) await assertListExists(db, list_id);
-    if (parent_id !== undefined) await assertValidParent(db, parent_id, id);
+    // Validate the effective parent whenever parent or list changes, so a task
+    // can never end up nested under a parent in a different project.
+    const effectiveParentId = parent_id !== undefined ? parent_id : task.parent_id;
+    if (parent_id !== undefined || list_id !== undefined) {
+      await assertValidParent(db, effectiveParentId, id, effectiveListId);
+    }
 
     // Treat an empty-string due_date the same as null ("remove the date").
     const dueDateProvided = due_date !== undefined;
@@ -197,11 +207,26 @@ router.put(
 
     const statusChanged = status !== undefined && status !== task.status;
     const parentChanged = parent_id !== undefined && parent_id !== task.parent_id;
+    const listChanged = list_id !== undefined && list_id !== task.list_id;
 
     // Apply the primary update plus any status/structure propagation atomically.
     await db.run('BEGIN');
     try {
       await db.run(`UPDATE tasks SET ${sets.join(', ')} WHERE id = ?`, [...params, id]);
+
+      // Moving a task to another project moves its whole subtree, keeping the
+      // tree consistent (descendants share their ancestor's list).
+      if (listChanged) {
+        await db.run(
+          `WITH RECURSIVE descendants(id) AS (
+             SELECT ?
+             UNION ALL
+             SELECT t.id FROM tasks t JOIN descendants d ON t.parent_id = d.id
+           )
+           UPDATE tasks SET list_id = ?, updated_at = datetime('now') WHERE id IN descendants`,
+          [id, list_id]
+        );
+      }
 
       if (statusChanged) await cascadeStatusDown(db, id, status);
 

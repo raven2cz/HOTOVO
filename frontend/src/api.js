@@ -61,7 +61,7 @@ export const api = {
   // Google Calendar sync
   getSyncConfig: () => request('/api/sync/config'),
   saveSyncConfig: (config) => request('/api/sync/config', { method: 'POST', body: config }),
-  getAuthUrl: () => request('/api/sync/auth-url'),
+  getAuthUrl: () => request('/api/sync/auth-url', { method: 'POST' }),
   triggerSync: () => request('/api/sync/run', { method: 'POST' }),
   disconnectSync: () => request('/api/sync/disconnect', { method: 'POST' })
 };

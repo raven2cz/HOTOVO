@@ -16,6 +16,7 @@ data/
 .env
 .env.local
 .todo-secret-key
+INITIAL_TOKEN.txt
 .audit-prompt.md
 .audit-out-*.md
 .audit-log-*.txt

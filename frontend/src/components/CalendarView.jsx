@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ChevronLeft, ChevronRight, Plus, Check } from 'lucide-react';
+import { parseLocalDate } from '../dateUtils';
 
 export default function CalendarView({ tasks, lists, onCreateTaskOnDate, onSelectTask }) {
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -37,7 +38,7 @@ export default function CalendarView({ tasks, lists, onCreateTaskOnDate, onSelec
   // Check if dates are equal (ignoring hours)
   const isSameDate = (dateStr, year, month, day) => {
     if (!dateStr) return false;
-    const d = new Date(dateStr);
+    const d = parseLocalDate(dateStr);
     return d.getFullYear() === year && d.getMonth() === month && d.getDate() === day;
   };
 

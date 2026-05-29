@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Calendar, Trash2, Edit3, ChevronDown, ChevronRight, Plus, HelpCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { formatLocalDate } from '../dateUtils';
 
 export default function TaskItem({
   task,
@@ -99,7 +100,7 @@ export default function TaskItem({
               {task.due_date && (
                 <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-900 border border-border-light dark:border-border-dark text-slate-500 dark:text-slate-400 flex items-center gap-1">
                   <Calendar size={10} />
-                  <span>{new Date(task.due_date).toLocaleDateString('cs-CZ')}</span>
+                  <span>{formatLocalDate(task.due_date)}</span>
                 </span>
               )}
 

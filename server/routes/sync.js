@@ -47,7 +47,9 @@ router.post(
 );
 
 // Build the consent-screen URL and persist a one-time CSRF state token.
-router.get(
+// POST (not GET) so a cross-site request can't silently invalidate an
+// in-progress OAuth flow — mutating loopback routes require a same-origin call.
+router.post(
   '/auth-url',
   requireAuth,
   asyncHandler(async (req, res) => {

@@ -15,20 +15,35 @@ export function assertEnum(value, allowed, fieldName) {
   return value;
 }
 
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})?$/;
+
 /**
- * Accept ISO date ("YYYY-MM-DD") or full ISO date-time. `null`/`undefined`
- * pass through (used to clear or skip the field).
+ * Accept a strict calendar date ("YYYY-MM-DD") or a full ISO date-time.
+ * Loose inputs that Date.parse() would silently coerce (e.g. "2026-02-31" or
+ * "05/06/2026") are rejected. `null`/`undefined` pass through.
  */
 export function assertDueDate(value, fieldName = 'due_date') {
   if (value === undefined || value === null) return value;
-  if (typeof value !== 'string' || !value.length) {
+  if (typeof value !== 'string') {
     throw badRequest(`Pole "${fieldName}" musí být datum ve formátu ISO.`);
   }
-  const parsed = Date.parse(value);
-  if (Number.isNaN(parsed)) {
-    throw badRequest(`Pole "${fieldName}" není platné datum: ${value}`);
+
+  if (DATE_ONLY.test(value)) {
+    const [y, m, d] = value.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    // Reject rollovers like 2026-02-31 (would become March).
+    if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) {
+      throw badRequest(`Pole "${fieldName}" není platné kalendářní datum: ${value}`);
+    }
+    return value;
   }
-  return value;
+
+  if (ISO_DATETIME.test(value) && !Number.isNaN(Date.parse(value))) {
+    return value;
+  }
+
+  throw badRequest(`Pole "${fieldName}" musí být ve formátu YYYY-MM-DD nebo ISO 8601: ${value}`);
 }
 
 export function assertNonEmptyString(value, fieldName) {

@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { open } from 'sqlite';
 import sqlite3 from 'sqlite3';
 import { v4 as uuidv4 } from 'uuid';
@@ -140,8 +142,9 @@ async function seedDefaults(db) {
     }
   }
 
-  // On first run, mint one random token and print it ONCE. Only the hash is
-  // stored, so this is the only opportunity to capture it for agent setup.
+  // On first run, mint one random token. Only its hash is stored, so we write
+  // the raw value to a 0600 provisioning file (NOT to stdout/journald, which
+  // may be world-readable) and log only the path.
   const tokenCount = await db.get('SELECT COUNT(*) AS count FROM api_tokens');
   if (tokenCount.count === 0) {
     const rawToken = generateToken();
@@ -150,11 +153,11 @@ async function seedDefaults(db) {
       hashToken(rawToken),
       'Výchozí AI Agent Token'
     ]);
+    const tokenFile = path.join(path.dirname(DB_PATH), 'INITIAL_TOKEN.txt');
+    fs.writeFileSync(tokenFile, `${rawToken}\n`, { mode: 0o600 });
     console.log(
-      '\n================ AI AGENT API TOKEN (zobrazí se pouze jednou) ================\n' +
-        `  ${rawToken}\n` +
-        '  Uložte si jej do konfigurace agenta. Další tokeny lze vytvořit v Nastavení.\n' +
-        '==============================================================================\n'
+      `[db] Vygenerován výchozí AI agent token. Uložen do: ${tokenFile} (práva 0600).\n` +
+        '     Po zkopírování soubor smažte. Další tokeny vytvoříte v Nastavení.'
     );
   }
 }

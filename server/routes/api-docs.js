@@ -1,6 +1,11 @@
 import express from 'express';
+import { requireAuth } from '../auth.js';
 
 const router = express.Router();
+
+// Docs describe the API surface; gate them like the rest of /api. The local UI
+// (same-origin loopback) still reaches them without a token.
+router.use(requireAuth);
 
 const openApiSpec = {
   openapi: "3.0.0",
