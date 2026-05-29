@@ -61,7 +61,7 @@ export async function drainOutbox() {
     const db = await getDb();
     const rows = await db.all(
       `SELECT * FROM gcal_outbox
-       WHERE next_attempt_at IS NULL OR next_attempt_at <= datetime('now')
+       WHERE dead = 0 AND (next_attempt_at IS NULL OR next_attempt_at <= datetime('now'))
        ORDER BY created_at ASC
        LIMIT ?`,
       [BATCH_SIZE]
@@ -84,10 +84,15 @@ export async function drainOutbox() {
         failed++;
         const attempts = row.attempts + 1;
         if (attempts >= MAX_ATTEMPTS) {
+          // Dead-letter: keep the row (marked dead) so the divergence stays
+          // visible/retryable instead of silently vanishing.
           console.error(
-            `[gcal] giving up on outbox ${row.op} after ${attempts} attempts: ${err.message}`
+            `[gcal] dead-lettering outbox ${row.op} after ${attempts} attempts: ${err.message}`
           );
-          await db.run('DELETE FROM gcal_outbox WHERE id = ?', [row.id]);
+          await db.run(
+            'UPDATE gcal_outbox SET attempts = ?, last_error = ?, dead = 1 WHERE id = ?',
+            [attempts, String(err.message).slice(0, 500), row.id]
+          );
         } else {
           // Exponential backoff capped at 60 minutes.
           const backoffMin = Math.min(2 ** attempts, 60);

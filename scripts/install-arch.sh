@@ -23,7 +23,8 @@ fi
 # 2. Check and Install Node.js & npm if needed
 if ! command -v node &> /dev/null || ! command -v npm &> /dev/null; then
     echo -e "${YELLOW}Node.js nebo npm není nainstalováno. Budeme vyžadovat sudo oprávnění k instalaci přes pacman...${NC}"
-    sudo pacman -Sy --needed nodejs npm sqlite3 --noconfirm
+    # Full sync+upgrade avoids an Arch partial-upgrade state (-Sy alone is unsafe).
+    sudo pacman -Syu --needed nodejs npm sqlite3 --noconfirm
 else
     echo -e "${GREEN}✔ Node.js (${NC}$(node -v)${GREEN}) a npm (${NC}$(npm -v)${GREEN}) jsou již nainstalovány.${NC}"
 fi

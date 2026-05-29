@@ -223,22 +223,27 @@ export default function App() {
     }
   };
 
-  // Get tasks that match filtering and search parameters
+  // Get tasks that match filtering, keeping the tree intact: a matching subtask
+  // also pulls in its ancestors so it isn't hidden under a non-matching parent.
   const getFilteredTasks = () => {
-    // Only get tasks for the selected project
-    let listTasks = tasks.filter(t => t.list_id === selectedListId);
+    const listTasks = tasks.filter(t => t.list_id === selectedListId);
+    if (filterPriority === 'all' && filterStatus === 'all') return listTasks;
 
-    // Apply priority filter
-    if (filterPriority !== 'all') {
-      listTasks = listTasks.filter(t => t.priority === filterPriority);
+    const matches = listTasks.filter(t =>
+      (filterPriority === 'all' || t.priority === filterPriority) &&
+      (filterStatus === 'all' || t.status === filterStatus)
+    );
+
+    const byId = new Map(listTasks.map(t => [t.id, t]));
+    const keep = new Set(matches.map(t => t.id));
+    for (const m of matches) {
+      let pid = m.parent_id;
+      while (pid && byId.has(pid) && !keep.has(pid)) {
+        keep.add(pid);
+        pid = byId.get(pid).parent_id;
+      }
     }
-
-    // Apply status filter
-    if (filterStatus !== 'all') {
-      listTasks = listTasks.filter(t => t.status === filterStatus);
-    }
-
-    return listTasks;
+    return listTasks.filter(t => keep.has(t.id));
   };
 
   const filteredTasks = getFilteredTasks();

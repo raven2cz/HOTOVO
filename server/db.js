@@ -143,6 +143,7 @@ async function initialise() {
       attempts INTEGER NOT NULL DEFAULT 0,
       last_error TEXT,
       next_attempt_at TEXT,
+      dead INTEGER NOT NULL DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now'))
     );
 
@@ -152,9 +153,18 @@ async function initialise() {
 
   await migrateApiTokens(db);
   await migrateSecrets(db);
+  await migrateOutbox(db);
   await seedDefaults(db);
 
   return db;
+}
+
+/** Add the `dead` column to gcal_outbox for databases created before it existed. */
+async function migrateOutbox(db) {
+  const columns = await db.all('PRAGMA table_info(gcal_outbox)');
+  if (!columns.some((c) => c.name === 'dead')) {
+    await db.exec('ALTER TABLE gcal_outbox ADD COLUMN dead INTEGER NOT NULL DEFAULT 0');
+  }
 }
 
 /**

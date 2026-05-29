@@ -92,12 +92,16 @@ function buildEventPayload(task) {
   const title = task.status === 'completed' ? `✅ ${task.title}` : task.title;
   const description = `${task.description || ''}\n\nSyncováno z Todo Listu.\nPriorita: ${task.priority}`;
   const isDateOnly = typeof task.due_date === 'string' && task.due_date.length === 10;
+  // Deterministic marker so retries can find the existing event instead of
+  // creating a duplicate (idempotency key keyed by task id).
+  const extendedProperties = { private: { todoTaskId: task.id } };
 
   if (isDateOnly) {
     const endDate = new Date(`${task.due_date}T00:00:00Z`).getTime() + DAY_MS;
     return {
       summary: title,
       description,
+      extendedProperties,
       start: { date: task.due_date },
       end: { date: new Date(endDate).toISOString().slice(0, 10) }
     };
@@ -107,12 +111,30 @@ function buildEventPayload(task) {
   return {
     summary: title,
     description,
+    extendedProperties,
     start: { dateTime: start.toISOString() },
     end: { dateTime: new Date(start.getTime() + 60 * 60 * 1000).toISOString() }
   };
 }
 
-// Create or update the Google Calendar event mirroring a task.
+/** Find an existing event previously created for this task (by its marker). */
+async function findEventIdByTask(calendar, taskId) {
+  try {
+    const res = await calendar.events.list({
+      calendarId: 'primary',
+      privateExtendedProperty: `todoTaskId=${taskId}`,
+      maxResults: 1,
+      showDeleted: false
+    });
+    return res.data.items?.[0]?.id || null;
+  } catch {
+    return null;
+  }
+}
+
+// Create or update the Google Calendar event mirroring a task. Idempotent: even
+// if a previous insert's id was never persisted (crash), the task marker lets us
+// find and reuse the existing event instead of creating a duplicate.
 export async function syncTaskToGoogle(task) {
   if (!task.due_date) return null;
 
@@ -120,19 +142,25 @@ export async function syncTaskToGoogle(task) {
   const db = await getDb();
   const event = buildEventPayload(task);
 
-  if (task.gcal_event_id) {
+  // Resolve the target event id: stored id, else look it up by marker.
+  let eventId = task.gcal_event_id || (await findEventIdByTask(calendar, task.id));
+
+  if (eventId) {
     try {
       const response = await calendar.events.patch({
         calendarId: 'primary',
-        eventId: task.gcal_event_id,
+        eventId,
         requestBody: event
       });
-      await db.run("UPDATE tasks SET gcal_updated_at = datetime('now') WHERE id = ?", [task.id]);
+      await db.run(
+        "UPDATE tasks SET gcal_event_id = ?, gcal_updated_at = datetime('now') WHERE id = ?",
+        [response.data.id, task.id]
+      );
       return response.data.id;
     } catch (err) {
       // If the event vanished from the calendar, fall through and create a new one.
       if (err.code !== 404 && err.code !== 410) throw err;
-      console.log(`[gcal] Event ${task.gcal_event_id} missing on Google; creating a new one.`);
+      console.log(`[gcal] Event ${eventId} missing on Google; creating a new one.`);
     }
   }
 
