@@ -1,7 +1,7 @@
 import express from 'express';
 import crypto from 'crypto';
 
-import { getDb } from '../db.js';
+import { getDb, withTransaction } from '../db.js';
 import { requireAuth, requireLocalUi } from '../auth.js';
 import { asyncHandler } from '../util/http.js';
 import { encryptSecret } from '../util/secrets.js';
@@ -151,13 +151,21 @@ router.post(
       }
     }
 
-    await db.run(
-      "DELETE FROM settings WHERE key IN ('gcal_refresh_token', 'gcal_access_token', 'gcal_token_expiry')"
-    );
-    await db.run('DELETE FROM oauth_states');
-    // Drop any queued sync work — credentials are gone, so it can't be applied.
-    await db.run('DELETE FROM gcal_outbox');
-    await db.run('UPDATE tasks SET gcal_event_id = NULL, gcal_updated_at = NULL');
+    // Fully forget the Google connection (tokens AND client credentials) and
+    // clear all derived sync state in one transaction, so a crash can't leave a
+    // half-disconnected state.
+    await withTransaction(async (tx) => {
+      await tx.run(
+        `DELETE FROM settings WHERE key IN (
+           'gcal_refresh_token', 'gcal_access_token', 'gcal_token_expiry',
+           'gcal_client_id', 'gcal_client_secret', 'gcal_redirect_uri'
+         )`
+      );
+      await tx.run('DELETE FROM oauth_states');
+      // Drop any queued sync work — credentials are gone, so it can't be applied.
+      await tx.run('DELETE FROM gcal_outbox');
+      await tx.run('UPDATE tasks SET gcal_event_id = NULL, gcal_updated_at = NULL');
+    });
 
     res.json({
       success: true,

@@ -261,21 +261,28 @@ function createApiTokensTable(db) {
 }
 
 async function seedDefaults(db) {
-  const listCount = await db.get('SELECT COUNT(*) AS count FROM lists');
-  if (listCount.count === 0) {
-    const defaultLists = [
-      { name: 'Nakup a prodej domu', color: '#f59e0b' },
-      { name: 'Prace', color: '#6366f1' },
-      { name: 'Open-Source', color: '#10b981' },
-      { name: 'Osobni', color: '#ec4899' }
-    ];
-    for (const list of defaultLists) {
-      await db.run('INSERT INTO lists (id, name, color) VALUES (?, ?, ?)', [
-        uuidv4(),
-        list.name,
-        list.color
-      ]);
+  // Seed default projects ONCE ever (tracked by a flag), not whenever `lists`
+  // happens to be empty — otherwise deleting all projects would resurrect them
+  // on the next restart.
+  const seeded = await db.get("SELECT value FROM settings WHERE key = 'seeded_defaults'");
+  if (!seeded) {
+    const listCount = await db.get('SELECT COUNT(*) AS count FROM lists');
+    if (listCount.count === 0) {
+      const defaultLists = [
+        { name: 'Nakup a prodej domu', color: '#f59e0b' },
+        { name: 'Prace', color: '#6366f1' },
+        { name: 'Open-Source', color: '#10b981' },
+        { name: 'Osobni', color: '#ec4899' }
+      ];
+      for (const list of defaultLists) {
+        await db.run('INSERT INTO lists (id, name, color) VALUES (?, ?, ?)', [
+          uuidv4(),
+          list.name,
+          list.color
+        ]);
+      }
     }
+    await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('seeded_defaults', '1')");
   }
 
   // On first run, mint one random token. Only its hash is stored, so we write
