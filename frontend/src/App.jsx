@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { api } from './api';
+import { api, TOKEN_KEY } from './api';
 import TaskItem from './components/TaskItem';
 import CalendarView from './components/CalendarView';
 import CommandPalette from './components/CommandPalette';
@@ -44,6 +44,7 @@ export default function App() {
 
   // Data loading status (surfaced to the user instead of failing silently)
   const [loadError, setLoadError] = useState(null);
+  const [tokenInput, setTokenInput] = useState('');
   // Monotonic counter so out-of-order loadData() responses can be discarded
   const loadSeq = useRef(0);
   // Tasks with an in-flight status toggle (prevents double-click double-submit,
@@ -116,6 +117,16 @@ export default function App() {
       console.error('Error loading data:', err.message);
       setLoadError(err.message);
     }
+  };
+
+  // Store an API token in this browser (needed for remote access where the
+  // server requires a token — LOCAL_UI_BYPASS=false behind a proxy).
+  const saveBrowserToken = () => {
+    const t = tokenInput.trim();
+    if (!t) return;
+    localStorage.setItem(TOKEN_KEY, t);
+    setTokenInput('');
+    loadData();
   };
 
   // Lists actions
@@ -502,15 +513,36 @@ export default function App() {
           {loadError && (
             <div
               role="alert"
-              className="flex items-center justify-between gap-3 p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm"
+              className="flex flex-col gap-3 p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm"
             >
-              <span>Nepodařilo se načíst data: {loadError}</span>
-              <button
-                onClick={loadData}
-                className="font-bold px-3 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/30 transition-colors"
+              <div className="flex items-center justify-between gap-3">
+                <span>Nepodařilo se načíst data: {loadError}</span>
+                <button
+                  onClick={loadData}
+                  className="font-bold px-3 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/30 transition-colors flex-shrink-0"
+                >
+                  Zkusit znovu
+                </button>
+              </div>
+              <form
+                onSubmit={(e) => { e.preventDefault(); saveBrowserToken(); }}
+                className="flex items-center gap-2"
               >
-                Zkusit znovu
-              </button>
+                <input
+                  type="password"
+                  value={tokenInput}
+                  onChange={(e) => setTokenInput(e.target.value)}
+                  placeholder="Vlož API token (pro vzdálený přístup)"
+                  aria-label="API token pro tento prohlížeč"
+                  className="flex-1 bg-slate-900 border border-red-500/20 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  className="font-bold px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white flex-shrink-0"
+                >
+                  Uložit token
+                </button>
+              </form>
             </div>
           )}
 
