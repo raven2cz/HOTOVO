@@ -48,10 +48,10 @@ app.use('/api/sync', syncRouter);
 app.use('/api/agent', agentRouter);
 app.use('/api/docs', docsRouter);
 
-// Health check (used by process supervisors / systemd watchdogs). Gated like
-// the rest of /api; local supervision on loopback passes via the same-origin
-// bypass. Intentionally minimal — exposes no runtime details.
-app.get('/api/health', requireAuth, (req, res) => res.json({ status: 'ok' }));
+// Liveness check — intentionally UNauthenticated so process supervisors,
+// healthchecks and load balancers work even when LOCAL_UI_BYPASS=false behind a
+// proxy. Returns nothing sensitive (just {status:ok}).
+app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 // Unmatched API routes: authenticate first so unknown paths don't reveal route
 // existence (unauthenticated callers get 401, not 404), then return JSON 404.
