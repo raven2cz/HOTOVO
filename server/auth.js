@@ -73,15 +73,14 @@ function isSameOrigin(req) {
  */
 export async function requireAuth(req, res, next) {
   try {
-    // Locality is determined independently of the token: a same-origin loopback
-    // request from a trusted host is the local UI even if it also carries a
-    // stored token. (Defeats DNS rebinding via the trusted-host allow-list.)
-    req.isLocalUi =
-      LOCAL_UI_BYPASS &&
-      isLoopback(req) &&
-      !isProxied(req) &&
-      isTrustedHost(req) &&
-      isSameOrigin(req);
+    // GENUINE locality of the request — a same-origin loopback request from a
+    // trusted host that did NOT arrive via a proxy. Computed independently of
+    // LOCAL_UI_BYPASS, because it also gates local-only admin routes
+    // (requireLocalUi) which must keep working even when the token-free bypass
+    // is off. A reverse proxy sets X-Forwarded-* (isProxied) and a public Host,
+    // so proxied requests are never "local".
+    req.localOrigin =
+      isLoopback(req) && !isProxied(req) && isTrustedHost(req) && isSameOrigin(req);
 
     const authHeader = req.headers.authorization || '';
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
@@ -99,7 +98,8 @@ export async function requireAuth(req, res, next) {
       return next();
     }
 
-    if (req.isLocalUi) {
+    // Token-free convenience for the genuinely-local UI (toggle: LOCAL_UI_BYPASS).
+    if (LOCAL_UI_BYPASS && req.localOrigin) {
       req.agent = { id: 'local-ui', name: 'Local UI' };
       return next();
     }
@@ -117,6 +117,6 @@ export async function requireAuth(req, res, next) {
  * is decided by origin, not by whether a token was sent. Must run after requireAuth.
  */
 export function requireLocalUi(req, res, next) {
-  if (req.isLocalUi) return next();
-  next(new ApiError(403, 'Tato akce je dostupná pouze z lokálního UI.'));
+  if (req.localOrigin) return next();
+  next(new ApiError(403, 'Tato akce je dostupná pouze z lokálního UI (loopback).'));
 }
