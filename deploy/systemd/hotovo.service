@@ -1,9 +1,9 @@
-# HOTOVO — production systemd unit for an /opt install (e.g. Raspberry Pi 4).
-# Copy to /etc/systemd/system/hotovo.service, then:
+# HOTOVO — production systemd unit for an /opt install (Raspberry Pi 4).
+# Installed by deploy/install-pi.sh. Copy to /etc/systemd/system/hotovo.service.
 #   sudo systemctl daemon-reload && sudo systemctl enable --now hotovo
 #
-# Assumes: app at /opt/hotovo, dedicated user `hotovo`, frontend already built
-# at deploy time (NOT on service start), env in /opt/hotovo/etc/hotovo.env.
+# Node is resolved to a fixed path at install time (/opt/hotovo/.node/node) so a
+# fnm-managed Node still works for the nologin `hotovo` system user.
 
 [Unit]
 Description=HOTOVO task app (self-hosted, AI-agent API + Google Calendar sync)
@@ -18,7 +18,7 @@ User=hotovo
 Group=hotovo
 WorkingDirectory=/opt/hotovo
 EnvironmentFile=/opt/hotovo/etc/hotovo.env
-ExecStart=/usr/bin/node /opt/hotovo/server/index.js
+ExecStart=/opt/hotovo/.node/node /opt/hotovo/server/index.js
 Restart=on-failure
 RestartSec=5
 

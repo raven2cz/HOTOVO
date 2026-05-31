@@ -14,7 +14,10 @@ echo "=== 1/4 Pull latest on Pi ==="
 $SSH "$PI" "sudo -u $APP_USER git -C $APP_DIR pull --ff-only origin main"
 
 echo "=== 2/4 Install deps + build frontend ==="
-$SSH "$PI" "sudo -u $APP_USER bash -lc 'cd $APP_DIR && npm run install:all && npm run build:frontend'"
+# Reuse the Node pinned at install time (its bin dir has node + npm), so the
+# nologin $APP_USER builds even with a fnm-managed Node.
+$SSH "$PI" "NODE_DIR=\$(dirname \$(readlink -f $APP_DIR/.node/node)); \
+  sudo -u $APP_USER env PATH=\$NODE_DIR:\$PATH bash -c 'cd $APP_DIR && npm run install:all && npm run build:frontend'"
 
 echo "=== 3/4 Restart service ==="
 $SSH "$PI" "sudo systemctl restart hotovo"
