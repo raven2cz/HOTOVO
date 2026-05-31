@@ -1,0 +1,40 @@
+# HOTOVO — production systemd unit for an /opt install (e.g. Raspberry Pi 4).
+# Copy to /etc/systemd/system/hotovo.service, then:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now hotovo
+#
+# Assumes: app at /opt/hotovo, dedicated user `hotovo`, frontend already built
+# at deploy time (NOT on service start), env in /opt/hotovo/etc/hotovo.env.
+
+[Unit]
+Description=HOTOVO task app (self-hosted, AI-agent API + Google Calendar sync)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=hotovo
+Group=hotovo
+WorkingDirectory=/opt/hotovo
+EnvironmentFile=/opt/hotovo/etc/hotovo.env
+ExecStart=/usr/bin/node /opt/hotovo/server/index.js
+Restart=on-failure
+RestartSec=5
+
+# Sandboxing
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectControlGroups=true
+ProtectKernelTunables=true
+RestrictSUIDSGID=true
+LockPersonality=true
+UMask=0077
+# Only the data directory is writable (DB, WAL, INITIAL_TOKEN.txt). Source and
+# build artifacts stay read-only — a compromise can't modify them for persistence.
+ReadWritePaths=/opt/hotovo/data
+
+[Install]
+WantedBy=multi-user.target
