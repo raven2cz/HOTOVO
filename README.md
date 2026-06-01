@@ -1,6 +1,7 @@
 # HOTOVO ✓
 
 <p align="center"><img src="docs/patmat.gif" width="320" alt="A je to!" /></p>
+<p align="center"><em>A je to!</em></p>
 
 **HOTOVO** je moderní, sebehostovatelná aplikace na správu úkolů pro **Raspberry Pi 4** (a jiná zařízení s nízkou spotřebou RAM). Má vestavěné **REST API pro AI agenty** (OpenAPI + MCP server) a obousměrnou integraci s **Google Kalendářem**.
 
