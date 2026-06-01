@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# HOTOVO — first-time install on a server / Raspberry Pi 4.
+# HOTOVO - first-time install on a server / Raspberry Pi 4.
 # Run on the Pi as a user with sudo. Idempotent-ish; safe to re-run.
 #
 #   REPO=git@github.com:raven2cz/HOTOVO.git ./deploy/install-pi.sh
@@ -12,7 +12,7 @@ PUBLIC_PORT="${PUBLIC_PORT:-17854}"   # nginx public SSL port (forward this in t
 
 say() { printf '\033[0;34m==>\033[0m %s\n' "$1"; }
 
-# 1. Node.js 20+ (resolve its real path — works with a fnm-managed Node too)
+# 1. Node.js 20+ (resolve its real path - works with a fnm-managed Node too)
 NODE_BIN="$(command -v node || true)"
 if [ -z "$NODE_BIN" ] || [ "$(node -p 'process.versions.node.split(".")[0]')" -lt 20 ]; then
   echo "Node.js 20+ is required and must be on PATH (e.g. via fnm: 'fnm use 20'). Re-run after." >&2
@@ -80,7 +80,7 @@ Next steps (manual):
   3. Google OAuth redirect URI (register in Google Cloud):
        https://fishlive.org:$PUBLIC_PORT/api/sync/callback
   4. Token: first-run AI agent token is in $APP_DIR/data/INITIAL_TOKEN.txt.
-     Behind the proxy LOCAL_UI_BYPASS=false, so the web UI needs it — paste it
+     Behind the proxy LOCAL_UI_BYPASS=false, so the web UI needs it - paste it
      once in Nastavení (it's stored in the browser). Then delete the file.
   5. Update later:  PI=pi@fishlive.org ./scripts/deploy-pi.sh   (from the dev box)
 EOF

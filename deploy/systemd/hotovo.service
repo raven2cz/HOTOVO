@@ -1,4 +1,4 @@
-# HOTOVO — production systemd unit for an /opt install (Raspberry Pi 4).
+# HOTOVO - production systemd unit for an /opt install (Raspberry Pi 4).
 # Installed by deploy/install-pi.sh. Copy to /etc/systemd/system/hotovo.service.
 #   sudo systemctl daemon-reload && sudo systemctl enable --now hotovo
 #
@@ -33,7 +33,7 @@ RestrictSUIDSGID=true
 LockPersonality=true
 UMask=0077
 # Only the data directory is writable (DB, WAL, INITIAL_TOKEN.txt). Source and
-# build artifacts stay read-only — a compromise can't modify them for persistence.
+# build artifacts stay read-only - a compromise can't modify them for persistence.
 ReadWritePaths=/opt/hotovo/data
 
 [Install]

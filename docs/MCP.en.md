@@ -1,5 +1,5 @@
 <!-- Česká verze: MCP.md -->
-# HOTOVO via MCP — quick guide for an agent
+# HOTOVO via MCP - quick guide for an agent
 
 You are connected to **HOTOVO** (a task manager) over MCP. **Start by calling `get_state`.**
 
@@ -14,8 +14,8 @@ You are connected to **HOTOVO** (a task manager) over MCP. **Start by calling `g
 ## Tools
 | tool | arguments | what it does |
 |---|---|---|
-| `get_state` | — | snapshot: projects + tasks + counts (call this first) |
-| `list_projects` | — | list projects |
+| `get_state` | - | snapshot: projects + tasks + counts (call this first) |
+| `list_projects` | - | list projects |
 | `create_project` | `name`*, `color?` | new project |
 | `list_tasks` | `list_id?`, `status?`, `priority?`, `due_date?` | filtered list |
 | `create_task` | `title`*, `list_id`*, `parent_id?`, `description?`, `priority?`, `due_date?`, `recurrence?`, `tags?` | new task/subtask |
@@ -24,12 +24,12 @@ You are connected to **HOTOVO** (a task manager) over MCP. **Start by calling `g
 | `delete_task` | `id`*, `confirm?` | delete a task |
 
 ## Rules
-- **Call `get_state` first** — so you know the `id`s of projects and tasks.
+- **Call `get_state` first** - so you know the `id`s of projects and tasks.
 - **Subtask**: `parent_id` must be a task in the **same project**.
 - **Completing a parent** completes its subtasks; completing **all** subtasks completes the parent.
 - A **recurring task** rolls forward to the next date when completed (no duplicate).
 - **Deleting a task that has subtasks** → `delete_task` with `confirm: true` (otherwise it errors).
-- On failure you get `Chyba: <message>` — fix the input and retry.
+- On failure you get `Chyba: <message>` - fix the input and retry.
 
 ## Example
 1. `get_state` → find the project "Osobni" and its `id`.

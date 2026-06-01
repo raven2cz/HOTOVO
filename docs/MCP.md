@@ -1,5 +1,5 @@
 <!-- English version: MCP.en.md -->
-# HOTOVO přes MCP — rychlý návod pro agenta
+# HOTOVO přes MCP - rychlý návod pro agenta
 
 Jsi připojen k aplikaci **HOTOVO** (správa úkolů) přes MCP. **Začni voláním `get_state`.**
 
@@ -14,8 +14,8 @@ Jsi připojen k aplikaci **HOTOVO** (správa úkolů) přes MCP. **Začni volán
 ## Nástroje
 | nástroj | argumenty | co dělá |
 |---|---|---|
-| `get_state` | — | snapshot: projekty + úkoly + počty (zavolej první) |
-| `list_projects` | — | seznam projektů |
+| `get_state` | - | snapshot: projekty + úkoly + počty (zavolej první) |
+| `list_projects` | - | seznam projektů |
 | `create_project` | `name`*, `color?` | nový projekt |
 | `list_tasks` | `list_id?`, `status?`, `priority?`, `due_date?` | filtrovaný výpis |
 | `create_task` | `title`*, `list_id`*, `parent_id?`, `description?`, `priority?`, `due_date?`, `recurrence?`, `tags?` | nový úkol/podúkol |
@@ -24,12 +24,12 @@ Jsi připojen k aplikaci **HOTOVO** (správa úkolů) přes MCP. **Začni volán
 | `delete_task` | `id`*, `confirm?` | smaže úkol |
 
 ## Pravidla
-- **Nejdřív `get_state`** — ať znáš `id` projektů a úkolů.
+- **Nejdřív `get_state`** - ať znáš `id` projektů a úkolů.
 - **Podúkol**: `parent_id` musí být úkol ve **stejném projektu**.
 - **Dokončení rodiče** dokončí i podúkoly; dokončení **všech** podúkolů dokončí rodiče.
 - **Opakovaný úkol** se po dokončení sám posune na další termín (nevytváří duplikát).
 - **Mazání úkolu, který má podúkoly** → `delete_task` s `confirm: true` (jinak chyba).
-- Při chybě dostaneš text `Chyba: <popis>` — oprav vstup a zkus znovu.
+- Při chybě dostaneš text `Chyba: <popis>` - oprav vstup a zkus znovu.
 
 ## Příklad
 1. `get_state` → najdi projekt „Osobni" a jeho `id`.
