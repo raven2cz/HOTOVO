@@ -72,6 +72,12 @@ a ukládá se jen jako hash.
 
 **MCP server:** `npm run mcp` (stdio, 8 nástrojů, tenká vrstva nad API). Návod pro
 agenta: [`docs/MCP.md`](docs/MCP.md), [`docs/MCP.en.md`](docs/MCP.en.md).
+Lokálně běží proti `127.0.0.1:PORT`; na vzdálený deployment ho nasměruješ přes
+`HOTOVO_BASE_URL` + `HOTOVO_API_TOKEN`:
+
+```bash
+HOTOVO_BASE_URL=https://fishlive.org:17854 HOTOVO_API_TOKEN=<token> npm run mcp
+```
 
 Hlavní endpointy:
 

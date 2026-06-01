@@ -10,9 +10,14 @@
  * Gemma via an MCP client) at:  node server/mcp.js
  *
  * Config (env):
- *   PORT             HOTOVO server port (default 3000)
- *   HOTOVO_API_TOKEN Bearer token. Optional when this process runs on the same
- *                    host as the server (loopback bypass covers task/list CRUD).
+ *   HOTOVO_BASE_URL  Full backend base URL, e.g. https://fishlive.org:17854.
+ *                    Use this to target a remote deployment. Defaults to
+ *                    http://127.0.0.1:PORT (local backend on the same host).
+ *   PORT             Local backend port, used only when HOTOVO_BASE_URL is
+ *                    unset (default 3000).
+ *   HOTOVO_API_TOKEN Bearer token. Optional only for a loopback backend (the
+ *                    local-UI bypass covers task/list CRUD). REQUIRED for any
+ *                    remote HOTOVO_BASE_URL, otherwise the API returns 401.
  */
 
 import readline from 'node:readline';
@@ -21,8 +26,44 @@ import readline from 'node:readline';
 // an attacker-controlled host via a crafted env value.
 const rawPort = Number(process.env.PORT);
 const PORT = Number.isInteger(rawPort) && rawPort >= 1 && rawPort <= 65535 ? rawPort : 3000;
-const BASE = `http://127.0.0.1:${PORT}`;
+
+// Resolve the backend base. HOTOVO_BASE_URL (if set) targets a remote backend;
+// it is validated and forced to http(s) so a malformed value can't silently
+// redirect requests (and the bearer token) somewhere unexpected.
+function resolveBase() {
+  const raw = process.env.HOTOVO_BASE_URL;
+  if (!raw) return `http://127.0.0.1:${PORT}`;
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`HOTOVO_BASE_URL is not a valid URL: ${raw}`);
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`HOTOVO_BASE_URL must be http(s), got: ${raw}`);
+  }
+  // Keep origin + any base path; drop query/hash and trailing slashes.
+  return (url.origin + url.pathname).replace(/\/+$/, '');
+}
+
+let BASE;
+try {
+  BASE = resolveBase();
+} catch (err) {
+  process.stderr.write(`[mcp] config error: ${err.message}\n`);
+  process.exit(1);
+}
+
 const TOKEN = process.env.HOTOVO_API_TOKEN || '';
+
+// A remote backend never gets the loopback bypass, so a token is mandatory.
+const isLoopbackBase = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|\/|$)/i.test(BASE);
+if (!isLoopbackBase && !TOKEN) {
+  process.stderr.write(
+    '[mcp] warning: remote HOTOVO_BASE_URL without HOTOVO_API_TOKEN; ' +
+      'the backend will reject calls with 401. Set HOTOVO_API_TOKEN.\n'
+  );
+}
 
 /** Encode an id for safe use as a single URL path segment (defeats path traversal). */
 const seg = (id) => encodeURIComponent(String(id));
