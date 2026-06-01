@@ -80,7 +80,7 @@ npm run mcp           # = node server/mcp.js
 # nelokální/zabezpečený provoz: HOTOVO_API_TOKEN=<token> npm run mcp
 ```
 
-Nástroje: `get_state`, `list_projects`, `create_project`, `list_tasks`, `create_task`, `update_task`, `complete_task`, `delete_task`.
+Nástroje: `get_state`, `list_projects`, `create_project`, `list_tasks`, `create_task`, `update_task`, `complete_task`, `delete_task`. Stručný návod pro agenta: [`docs/MCP.md`](docs/MCP.md).
 
 ### Hlavní endpointy
 - `GET /api/tasks` — výpis (filtry `list_id`, `status`, `priority`, `due_date`, `search`, `tag`, `due=today|week|overdue`)
