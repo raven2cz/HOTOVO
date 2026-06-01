@@ -1,3 +1,4 @@
+<!-- English version: MCP.en.md -->
 # HOTOVO přes MCP — rychlý návod pro agenta
 
 Jsi připojen k aplikaci **HOTOVO** (správa úkolů) přes MCP. **Začni voláním `get_state`.**
