@@ -145,7 +145,7 @@ const TOOLS = [
   {
     name: 'create_task',
     description:
-      'Vytvoří úkol nebo podúkol. Args: title*, list_id*, parent_id (podúkol — stejný projekt), ' +
+      'Vytvoří úkol nebo podúkol. Args: title*, list_id*, parent_id (podúkol - stejný projekt), ' +
       'description, priority (low|medium|high|urgent), due_date (YYYY-MM-DD nebo ISO 8601 s TZ).',
     inputSchema: {
       type: 'object',

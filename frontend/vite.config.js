@@ -12,7 +12,7 @@ export default defineConfig({
       '/api': {
         target: `http://localhost:${backendPort}`,
         // Keep the original Host (localhost:5173) so it matches the browser's
-        // Origin — the backend's same-origin loopback check then accepts dev
+        // Origin - the backend's same-origin loopback check then accepts dev
         // UI mutations without requiring a manually-stored token.
         changeOrigin: false,
         secure: false,

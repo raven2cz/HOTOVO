@@ -254,7 +254,7 @@ router.get('/', (req, res) => {
     <html lang="cs">
       <head>
         <meta charset="utf-8" />
-        <title>HOTOVO — API pro agenty</title>
+        <title>HOTOVO - API pro agenty</title>
         <style>
           body { font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background:#0a0b12; color:#cbd5e1; line-height:1.65; padding:2.5rem 1.5rem; max-width:820px; margin:0 auto; }
           h1 { color:#f8fafc; font-weight:800; letter-spacing:.04em; display:flex; align-items:center; gap:.6rem; }
@@ -270,13 +270,13 @@ router.get('/', (req, res) => {
       <body>
         <h1>
           <svg class="logo" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g" x1="0" y1="32" x2="32" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#a855f7"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="9" fill="url(#g)"/><path d="M9.5 16.5 L14 21 L22.5 11" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
-          HOTOVO — API pro AI agenty
+          HOTOVO - API pro AI agenty
         </h1>
         <p>Plnohodnotné REST API pro řízení úkolů agenty (custom GPTs, Gemini/Gemma agenti, vlastní skripty).</p>
 
         <h2>Nejrychlejší start pro agenta</h2>
-        <div class="ep"><span class="m">GET</span> <code>/api/agent/guide</code> — stručný návod (Markdown) přímo do system promptu</div>
-        <div class="ep"><span class="m">GET</span> <code>/api/agent/state</code> — snapshot všech projektů a úkolů jedním voláním</div>
+        <div class="ep"><span class="m">GET</span> <code>/api/agent/guide</code> - stručný návod (Markdown) přímo do system promptu</div>
+        <div class="ep"><span class="m">GET</span> <code>/api/agent/state</code> - snapshot všech projektů a úkolů jedním voláním</div>
 
         <h2>Autentizace</h2>
         <p>Nelokální klienti posílají hlavičku:</p>
@@ -284,11 +284,11 @@ router.get('/', (req, res) => {
         <p>Token vytvoříte v <strong>Nastavení → AI Agenti (API)</strong>. Lokální UI na zařízení token nepotřebuje.</p>
 
         <h2>Hlavní endpointy</h2>
-        <div class="ep"><span class="m">GET</span> <code>/api/tasks</code> — výpis (filtry: list_id, status, priority, due_date)</div>
-        <div class="ep"><span class="m">POST</span> <code>/api/tasks</code> — vytvořit úkol/podúkol</div>
-        <div class="ep"><span class="m">PUT</span> <code>/api/tasks/:id</code> — upravit / dokončit</div>
-        <div class="ep"><span class="m">DELETE</span> <code>/api/tasks/:id</code> — smazat (s podúkoly: <code>?confirm=true</code>)</div>
-        <div class="ep"><span class="m">GET</span> <code>/api/lists</code> — projekty</div>
+        <div class="ep"><span class="m">GET</span> <code>/api/tasks</code> - výpis (filtry: list_id, status, priority, due_date)</div>
+        <div class="ep"><span class="m">POST</span> <code>/api/tasks</code> - vytvořit úkol/podúkol</div>
+        <div class="ep"><span class="m">PUT</span> <code>/api/tasks/:id</code> - upravit / dokončit</div>
+        <div class="ep"><span class="m">DELETE</span> <code>/api/tasks/:id</code> - smazat (s podúkoly: <code>?confirm=true</code>)</div>
+        <div class="ep"><span class="m">GET</span> <code>/api/lists</code> - projekty</div>
 
         <h2>Strojová specifikace</h2>
         <p>OpenAPI 3.1: <a href="/api/docs/openapi.json">/api/docs/openapi.json</a></p>

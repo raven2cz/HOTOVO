@@ -12,7 +12,7 @@ router.use(requireAuth);
 
 // Token management (list/create/revoke) is restricted to the local UI so a
 // leaked agent token cannot enumerate, mint, or revoke tokens.
-// List tokens. Only non-sensitive metadata is returned — never the raw token
+// List tokens. Only non-sensitive metadata is returned - never the raw token
 // or its hash.
 router.get(
   '/',
@@ -115,7 +115,7 @@ router.get(
     const childrenOf = (parentId) => tasks.filter((t) => t.parent_id === parentId);
 
     if (format === 'markdown') {
-      let md = `# Export úkolů — HOTOVO (${new Date().toLocaleDateString('cs-CZ')})\n\n`;
+      let md = `# Export úkolů - HOTOVO (${new Date().toLocaleDateString('cs-CZ')})\n\n`;
       const priorityMap = { low: '🟢', medium: '🟡', high: '🟠', urgent: '🔴' };
 
       const renderTask = (task, depth, seen) => {

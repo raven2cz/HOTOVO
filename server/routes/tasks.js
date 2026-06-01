@@ -238,7 +238,7 @@ router.post(
     assertNonEmptyString(list_id, 'list_id');
     assertEnum(priority, TASK_PRIORITIES, 'priority');
     assertDueDate(due_date);
-    // Recurrence applies to top-level tasks only — never store it on a subtask.
+    // Recurrence applies to top-level tasks only - never store it on a subtask.
     const normalizedRecurrence = parent_id ? null : assertRecurrence(recurrence) ?? null;
     const normalizedTags = assertTags(tags);
     const tagsJson = normalizedTags && normalizedTags.length ? JSON.stringify(normalizedTags) : null;
@@ -277,7 +277,7 @@ router.put(
   '/:id',
   asyncHandler(async (req, res) => {
     const { id } = req.params;
-    // gcal_event_id is intentionally NOT accepted from clients — only the
+    // gcal_event_id is intentionally NOT accepted from clients - only the
     // calendar service may set it. Otherwise a caller could bind a task to an
     // arbitrary Google event and have us patch/delete events they don't own.
     const { title, description, status, priority, due_date, list_id, parent_id, recurrence, tags } = req.body;
@@ -298,7 +298,7 @@ router.put(
     const db = await getDb();
     const configured = await isSyncConfigured();
 
-    // Read the task, validate references, and write — all inside one
+    // Read the task, validate references, and write - all inside one
     // transaction. Doing the existence/cycle checks against the SAME connection
     // immediately before the write closes the TOCTOU window where two concurrent
     // re-parents could validate against the old tree and then form a cycle.
@@ -362,7 +362,7 @@ router.put(
       if (parentChanged) { parentsToRollup.add(task.parent_id); parentsToRollup.add(parent_id); }
       for (const p of parentsToRollup) if (p) await rollupAncestors(tx, p);
 
-      // Ticking a recurring task doesn't "finish" it — it rolls forward: advance
+      // Ticking a recurring task doesn't "finish" it - it rolls forward: advance
       // its due date to the next occurrence and reopen it (resetting its subtask
       // checklist) instead of completing. This is a single-row update, so there
       // are no duplicate occurrences and no tree corruption. Recurrence applies to
@@ -435,7 +435,7 @@ router.delete(
         [id]
       );
 
-      // Deleting a parent cascades to its subtasks — require explicit confirmation.
+      // Deleting a parent cascades to its subtasks - require explicit confirmation.
       if (subtree.length > 1 && !confirmed) {
         throw badRequest(
           `Úkol má ${subtree.length - 1} podúkolů, které budou také smazány. ` +
@@ -446,7 +446,7 @@ router.delete(
       const deleteEventIds = subtree.filter((n) => n.gcal_event_id).map((n) => n.gcal_event_id);
 
       // Delete the whole subtree EXPLICITLY rather than relying on ON DELETE
-      // CASCADE — robust even on a legacy DB whose tasks table lacks the FK.
+      // CASCADE - robust even on a legacy DB whose tasks table lacks the FK.
       const subtreeIds = subtree.map((n) => n.id);
       await tx.run(
         `DELETE FROM tasks WHERE id IN (${subtreeIds.map(() => '?').join(',')})`,

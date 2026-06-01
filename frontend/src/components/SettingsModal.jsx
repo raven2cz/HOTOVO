@@ -59,7 +59,7 @@ export default function SettingsModal({ isOpen, onClose }) {
         gcal_client_id: syncConfig.gcal_client_id,
         gcal_redirect_uri: syncConfig.gcal_redirect_uri
       };
-      // Only send the secret when the user actually typed one — avoids wiping
+      // Only send the secret when the user actually typed one - avoids wiping
       // the stored secret when re-saving other fields.
       if (syncConfig.gcal_client_secret) payload.gcal_client_secret = syncConfig.gcal_client_secret;
       await api.saveSyncConfig(payload);
@@ -126,7 +126,7 @@ export default function SettingsModal({ isOpen, onClose }) {
     try {
       const { stats } = await api.triggerSync();
       if (stats?.skipped) {
-        setSyncStatus('Synchronizace přeskočena – kalendář není připojen.');
+        setSyncStatus('Synchronizace přeskočena - kalendář není připojen.');
       } else {
         setSyncStatus(
           `Synchronizace dokončena. Zpracováno: ${stats?.processed ?? 0}, ` +

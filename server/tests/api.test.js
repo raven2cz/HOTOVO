@@ -24,7 +24,7 @@ function wipeTestDb() {
     try {
       fs.unlinkSync(DB_PATH + suffix);
     } catch {
-      /* not present — fine */
+      /* not present - fine */
     }
   }
 }
@@ -237,7 +237,7 @@ test('Backend API Integration Tests Suite', async (t) => {
       })
     ).json();
 
-    // Same task, still pending, due date advanced by one day — no second task.
+    // Same task, still pending, due date advanced by one day - no second task.
     assert.strictEqual(done.id, create.id);
     assert.strictEqual(done.status, 'pending');
     assert.strictEqual(done.due_date, '2026-06-02');
@@ -267,9 +267,9 @@ test('Backend API Integration Tests Suite', async (t) => {
     await db.run('DELETE FROM gcal_outbox'); // clear anything the create might have queued
 
     await enqueueUpsert(ot.id);
-    await enqueueUpsert(ot.id); // duplicate — should be collapsed
+    await enqueueUpsert(ot.id); // duplicate - should be collapsed
     await enqueueDelete('event-abc');
-    await enqueueDelete('event-abc'); // duplicate — should be collapsed
+    await enqueueDelete('event-abc'); // duplicate - should be collapsed
 
     const upserts = await db.get(
       "SELECT COUNT(*) AS c FROM gcal_outbox WHERE op = 'upsert' AND task_id = ?",

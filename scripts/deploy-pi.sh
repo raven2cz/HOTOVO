@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# HOTOVO — update an existing /opt/hotovo install on the Pi from this dev box.
+# HOTOVO - update an existing /opt/hotovo install on the Pi from this dev box.
 # Pulls latest main on the Pi, reinstalls deps, rebuilds the frontend, restarts.
 #
 #   PI=pi@fishlive.org ./scripts/deploy-pi.sh

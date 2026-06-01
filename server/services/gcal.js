@@ -120,7 +120,7 @@ function buildEventPayload(task) {
 /**
  * Find an existing event previously created for this task (by its marker).
  * An empty result legitimately means "none". Errors are NOT swallowed: a
- * transient list failure must propagate so the outbox retries — otherwise we'd
+ * transient list failure must propagate so the outbox retries - otherwise we'd
  * fall through to insert and create a duplicate event.
  */
 async function findEventIdByTask(calendar, taskId) {
@@ -175,7 +175,7 @@ export async function syncTaskToGoogle(task) {
 
   // The insert is a slow network call; the task may have been deleted or had its
   // due date cleared meanwhile. If so, the event we just created is an orphan.
-  // Return its id so the caller (drainer) can DURABLY queue its deletion — doing
+  // Return its id so the caller (drainer) can DURABLY queue its deletion - doing
   // it inline could fail transiently and permanently lose the id.
   const fresh = await db.get('SELECT id, due_date FROM tasks WHERE id = ?', [task.id]);
   if (!fresh || !fresh.due_date) {

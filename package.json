@@ -1,7 +1,7 @@
 {
   "name": "hotovo",
   "version": "1.0.0",
-  "description": "HOTOVO — a 2026 self-hosted task app with an AI-agent API and Google Calendar sync",
+  "description": "HOTOVO - a 2026 self-hosted task app with an AI-agent API and Google Calendar sync",
   "main": "server/index.js",
   "scripts": {
     "install:all": "npm install && cd server && npm install && cd ../frontend && npm install",

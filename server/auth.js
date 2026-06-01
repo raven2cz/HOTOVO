@@ -73,7 +73,7 @@ function isSameOrigin(req) {
  */
 export async function requireAuth(req, res, next) {
   try {
-    // GENUINE locality of the request — a same-origin loopback request from a
+    // GENUINE locality of the request - a same-origin loopback request from a
     // trusted host that did NOT arrive via a proxy. Computed independently of
     // LOCAL_UI_BYPASS, because it also gates local-only admin routes
     // (requireLocalUi) which must keep working even when the token-free bypass
@@ -112,7 +112,7 @@ export async function requireAuth(req, res, next) {
 
 /**
  * Restrict a route to the local UI (same-origin loopback). Remote agents are
- * rejected even with a valid token — this prevents a leaked agent token from
+ * rejected even with a valid token - this prevents a leaked agent token from
  * minting backdoor tokens, revoking tokens, or rewriting OAuth config. Locality
  * is decided by origin, not by whether a token was sent. Must run after requireAuth.
  */

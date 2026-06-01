@@ -1,7 +1,7 @@
 import React from 'react';
 
 /**
- * HOTOVO brand mark: a checkmark in a rounded tile — the universal "done".
+ * HOTOVO brand mark: a checkmark in a rounded tile - the universal "done".
  * Scales cleanly from a 16px favicon to a large header logo.
  */
 export default function Logo({ size = 32, className = '' }) {

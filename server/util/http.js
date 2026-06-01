@@ -35,7 +35,7 @@ export function errorHandler(err, req, res, _next) {
   }
 
   // Malformed JSON / body-parser errors are client errors. Return 400 and log
-  // ONLY the message — never the error object, which carries the raw request
+  // ONLY the message - never the error object, which carries the raw request
   // body (potentially tokens / OAuth data).
   if (err && (err.type === 'entity.parse.failed' || (err.status === 400 && 'body' in err))) {
     console.warn(`[error] ${req.method} ${req.originalUrl}: malformed request body (${err.message})`);

@@ -11,7 +11,7 @@ router.use(requireAuth);
 /**
  * One-call snapshot of everything an agent needs: all projects and all tasks
  * (flat, with parent_id so the agent can reconstruct the tree). Cheap context
- * for a single LLM turn — avoids N calls to assemble state.
+ * for a single LLM turn - avoids N calls to assemble state.
  */
 router.get(
   '/state',
@@ -54,7 +54,7 @@ router.get(
  * explicit, example-driven, with the few rules that trip agents up.
  */
 function buildGuide() {
-  return `# HOTOVO — průvodce pro AI agenty
+  return `# HOTOVO - průvodce pro AI agenty
 
 Jsi napojen na HOTOVO, aplikaci na správu úkolů. Pracuješ přes REST API.
 
@@ -88,7 +88,7 @@ sestavíš podle \`parent_id\`. Použij to na začátku, ať víš, co existuje.
    \`PUT /api/tasks/<id>\` \`{ "status": "completed" }\` (nebo title/priority/due_date/...)
    - Dokončení rodiče dokončí i podúkoly; dokončení všech podúkolů dokončí rodiče.
 3) Smazat úkol:
-   \`DELETE /api/tasks/<id>\` — má-li podúkoly, přidej \`?confirm=true\` (jinak 400).
+   \`DELETE /api/tasks/<id>\` - má-li podúkoly, přidej \`?confirm=true\` (jinak 400).
 4) Vypsat/filtrovat úkoly:
    \`GET /api/tasks?list_id=<id>&status=pending&priority=high&due_date=2026-06-01\`
    - Hledání: \`?search=text\` (v názvu i popisu). Štítek: \`?tag=práce\`.
@@ -97,7 +97,7 @@ sestavíš podle \`parent_id\`. Použij to na začátku, ať víš, co existuje.
    \`DELETE /api/lists/<id>?confirm=true\` (smaže i úkoly v projektu).
 
 ## Pravidla, na která dej pozor
-- Neposílej \`gcal_event_id\` — spravuje ho server.
+- Neposílej \`gcal_event_id\` - spravuje ho server.
 - Mazání, které kaskáduje (úkol s podúkoly, projekt s úkoly), vyžaduje \`?confirm=true\`.
 - Chybové odpovědi mají tvar \`{ "error": "popis česky" }\` a HTTP kód 400/401/403/404.
   Při 400 si přečti \`error\`, oprav vstup a zkus znovu.

@@ -26,8 +26,8 @@ export const IS_PRODUCTION = APP_ENV === 'production';
  *
  * Strict test/prod separation. In the test environment the database is HARD-
  * CODED to a single repo-local file (todo-test.db). DB_PATH / TEST_DB_PATH /
- * .env are all ignored, so tests can never be pointed at — and therefore never
- * unlink — a production database, regardless of how the environment is shaped.
+ * .env are all ignored, so tests can never be pointed at - and therefore never
+ * unlink - a production database, regardless of how the environment is shaped.
  * This is the definitive guard against the prior data-loss incident.
  */
 const TEST_DB_FILE = 'todo-test.db';

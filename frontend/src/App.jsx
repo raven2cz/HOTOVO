@@ -120,7 +120,7 @@ export default function App() {
   };
 
   // Store an API token in this browser (needed for remote access where the
-  // server requires a token — LOCAL_UI_BYPASS=false behind a proxy).
+  // server requires a token - LOCAL_UI_BYPASS=false behind a proxy).
   const saveBrowserToken = () => {
     const t = tokenInput.trim();
     if (!t) return;

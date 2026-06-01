@@ -48,7 +48,7 @@ app.use('/api/sync', syncRouter);
 app.use('/api/agent', agentRouter);
 app.use('/api/docs', docsRouter);
 
-// Liveness check — intentionally UNauthenticated so process supervisors,
+// Liveness check - intentionally UNauthenticated so process supervisors,
 // healthchecks and load balancers work even when LOCAL_UI_BYPASS=false behind a
 // proxy. Returns nothing sensitive (just {status:ok}).
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
@@ -65,7 +65,7 @@ app.get('*', (req, res) => res.sendFile(path.join(frontendDistPath, 'index.html'
 // Central error handler (keeps internal details out of responses).
 app.use(errorHandler);
 
-// Initialise the database BEFORE accepting traffic. A failure here is fatal —
+// Initialise the database BEFORE accepting traffic. A failure here is fatal -
 // running with a broken DB would silently appear healthy otherwise.
 async function start() {
   try {

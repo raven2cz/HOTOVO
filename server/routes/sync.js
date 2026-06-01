@@ -30,7 +30,7 @@ router.get(
   })
 );
 
-// Update Google Calendar credentials (local UI only — agents must not be able
+// Update Google Calendar credentials (local UI only - agents must not be able
 // to rewrite OAuth client config or the redirect URI).
 router.post(
   '/config',
@@ -54,7 +54,7 @@ router.post(
 
 // Build the consent-screen URL and persist a one-time CSRF state token.
 // POST (not GET) so a cross-site request can't silently invalidate an
-// in-progress OAuth flow — mutating loopback routes require a same-origin call.
+// in-progress OAuth flow - mutating loopback routes require a same-origin call.
 router.post(
   '/auth-url',
   requireAuth,
@@ -94,7 +94,7 @@ router.get(
     try {
       await handleCallback(code);
     } catch (err) {
-      // Log only sanitized fields — the raw error can carry the auth code and
+      // Log only sanitized fields - the raw error can carry the auth code and
       // OAuth client details, which must not land in logs/journald.
       console.error('[gcal] OAuth callback failed:', err.message, err.code ?? '', err.response?.status ?? '');
       return res.status(500).send('Dokončení autentizace selhalo. Zkuste to prosím znovu.');
@@ -127,7 +127,7 @@ router.post(
   })
 );
 
-// Disconnect Google Calendar (local UI only — it deletes mirrored events and
+// Disconnect Google Calendar (local UI only - it deletes mirrored events and
 // stored tokens).
 router.post(
   '/disconnect',
@@ -163,7 +163,7 @@ router.post(
            )`
         );
         await tx.run('DELETE FROM oauth_states');
-        // Drop any queued sync work — credentials are gone, so it can't be applied.
+        // Drop any queued sync work - credentials are gone, so it can't be applied.
         await tx.run('DELETE FROM gcal_outbox');
         await tx.run('UPDATE tasks SET gcal_event_id = NULL, gcal_updated_at = NULL');
       });
@@ -176,7 +176,7 @@ router.post(
       message:
         orphaned.length === 0
           ? 'Google Kalendář byl odpojen.'
-          : `Google Kalendář byl odpojen, ale ${orphaned.length} událostí se nepodařilo smazat – odstraňte je ručně.`,
+          : `Google Kalendář byl odpojen, ale ${orphaned.length} událostí se nepodařilo smazat - odstraňte je ručně.`,
       orphaned_events: orphaned
     });
   })

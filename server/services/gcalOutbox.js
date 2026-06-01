@@ -20,7 +20,7 @@ const BATCH_SIZE = 100;
 let draining = false;
 
 /**
- * Enqueue an upsert for a task (deduped — one pending upsert per task).
+ * Enqueue an upsert for a task (deduped - one pending upsert per task).
  * Pass `conn` to enqueue inside an existing transaction (atomic with the
  * triggering DB change).
  */
@@ -29,7 +29,7 @@ export async function enqueueUpsert(taskId, conn) {
   const db = conn || (await getDb());
 
   // Only a task that CURRENTLY has a due date will (re)create/patch its event.
-  // An undated task has nothing to sync — and must NOT cancel a legitimate
+  // An undated task has nothing to sync - and must NOT cancel a legitimate
   // pending delete of its old event.
   const task = await db.get('SELECT due_date FROM tasks WHERE id = ?', [taskId]);
   if (!task || !task.due_date) return;
@@ -114,7 +114,7 @@ export async function drainOutbox() {
       // Claim the row before the (slow) Google call so a concurrent edit during
       // sync enqueues a fresh follow-up instead of being deduped against this row.
       // If the row was cancelled meanwhile (e.g. a re-added due date deleted this
-      // pending delete), the claim affects 0 rows — skip it, don't execute it.
+      // pending delete), the claim affects 0 rows - skip it, don't execute it.
       const claim = await db.run("UPDATE gcal_outbox SET in_progress = 1 WHERE id = ? AND in_progress = 0", [row.id]);
       if (claim.changes !== 1) continue;
       try {
@@ -123,7 +123,7 @@ export async function drainOutbox() {
           // Task gone or no longer dated → nothing to mirror; drop the entry.
           if (task && task.due_date) {
             const result = await syncTaskToGoogle(task);
-            // The task vanished/undated mid-insert and left an orphan event —
+            // The task vanished/undated mid-insert and left an orphan event -
             // queue a durable delete so a transient failure is retried, not lost.
             if (result && result.orphan) await enqueueDelete(result.orphan);
           }
@@ -164,7 +164,7 @@ export async function drainOutbox() {
 }
 
 /**
- * Drain now (best-effort) — used right after a mutation so sync feels immediate,
+ * Drain now (best-effort) - used right after a mutation so sync feels immediate,
  * while failures stay queued for retry. Never throws.
  */
 export async function flushOutbox() {

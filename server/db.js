@@ -87,7 +87,7 @@ async function initialise() {
   await db.run('PRAGMA foreign_keys = ON');
   await db.run('PRAGMA busy_timeout = 5000');
 
-  // Restrict the DB (and WAL/SHM sidecars) to the owner — it holds task data
+  // Restrict the DB (and WAL/SHM sidecars) to the owner - it holds task data
   // plus token/secret material. Best-effort: ignore on platforms without chmod.
   for (const suffix of ['', '-wal', '-shm']) {
     try {
@@ -270,7 +270,7 @@ function createApiTokensTable(db) {
 
 async function seedDefaults(db) {
   // Seed default projects ONCE ever (tracked by a flag), not whenever `lists`
-  // happens to be empty — otherwise deleting all projects would resurrect them
+  // happens to be empty - otherwise deleting all projects would resurrect them
   // on the next restart.
   const seeded = await db.get("SELECT value FROM settings WHERE key = 'seeded_defaults'");
   if (!seeded) {
