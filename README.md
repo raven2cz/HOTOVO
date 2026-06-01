@@ -1,123 +1,104 @@
 # HOTOVO ✓
 
+> Sebehostovaná správa úkolů pro jednoho člověka a jeho agenty.
+> Název říká vše — *HOTOVO* je to slovo, co řekneš, když je úkol odškrtnutý.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/Node-18%2B-339933.svg)](https://nodejs.org/)
+[![SQLite](https://img.shields.io/badge/SQLite-WAL-003B57.svg)](https://www.sqlite.org/)
+[![MCP](https://img.shields.io/badge/AI%20agents-REST%20%2B%20MCP-7c6cf6.svg)](docs/MCP.md)
+
 <p align="center"><img src="docs/patmat.gif" width="320" alt="A je to!" /></p>
 <p align="center"><em>A je to!</em></p>
 
-**HOTOVO** je moderní, sebehostovatelná aplikace na správu úkolů pro **Raspberry Pi 4** (a jiná zařízení s nízkou spotřebou RAM). Má vestavěné **REST API pro AI agenty** (OpenAPI + MCP server) a obousměrnou integraci s **Google Kalendářem**.
-
-> Název říká vše: *HOTOVO* — to slovo, co řekneš, když je úkol odškrtnutý. ✓
-
 ![HOTOVO — seznam úkolů](docs/screenshots/list.png)
+
+## Co to je
+
+Osobní to‑do aplikace, kterou si hostuješ sám — typicky na Raspberry Pi 4. Jeden
+Node proces, SQLite, React frontend. Kromě webového UI má **REST API a MCP server
+pro AI agenty** (custom GPTs, Gemini/Gemma) a obousměrnou synchronizaci s **Google
+Kalendářem**.
+
+Není to týmový nástroj ani SaaS: počítá s **jedním uživatelem**, váže se na
+`127.0.0.1` a citlivá data drží lokálně.
+
+## Vlastnosti
+
+- **Hierarchické úkoly** s rollupem stavu — dokončením všech podúkolů se dokončí rodič a naopak.
+- **Opakování** (denně / týdně / měsíčně) stylem roll‑forward — dokončený úkol se posune na další termín, nevytváří duplikát.
+- **Štítky a hledání** — tagy napříč projekty, fulltext a filtry `Dnes` / `Tento týden` / `Po termínu`.
+- **Kalendář** — měsíční přehled úkolů, rychlé plánování kliknutím na den.
+- **Command palette** (`Ctrl/Cmd + K`) pro skok kamkoli; `/` filtruje úkoly v projektu.
+- **API pro agenty** — REST + dependency‑free MCP stdio server. `GET /api/agent/guide` vrátí stručný system prompt, `GET /api/agent/state` snapshot stavu jedním voláním.
+- **Google Calendar sync** — úkol s termínem se propíše do kalendáře přes durable outbox (idempotentní insert přes `todoTaskId` marker, retry/backoff, dead‑letter, recovery po pádu).
+- **Export** — JSON, Markdown, CSV.
+
+## Architektura
+
+- **Backend:** Node.js (Express, ES modules), SQLite ve WAL. Jeden proces, < 70 MB RAM.
+- **Frontend:** React (Vite), Tailwind, Framer Motion, Lucide. V produkci se zkompiluje do statických souborů a Express je servíruje na portu `3000`.
+- **Bezpečnost:** fail‑closed auth, tokeny jen jako SHA‑256 hash, OAuth secrets šifrované at‑rest.
 
 <p align="center">
   <img src="docs/screenshots/calendar.png" width="49%" alt="Kalendář" />
-  <img src="docs/screenshots/command-palette.png" width="49%" alt="Command Palette (Ctrl+K)" />
-</p>
-<p align="center">
-  <img src="docs/screenshots/settings.png" width="60%" alt="Nastavení a integrace" />
+  <img src="docs/screenshots/command-palette.png" width="49%" alt="Command Palette" />
 </p>
 
----
-
-## 🎨 Vlastnosti
-- **Čisté 2026 UI:** tmavé rozhraní s jemným glass efektem, plynulé animace, písmo *Outfit*, vlastní logo.
-- **Hierarchické úkoly:** vnořené podúkoly s automatickým rollupem stavu (dokončením všech podúkolů se dokončí rodič a naopak).
-- **Opakované úkoly:** denně / týdně / měsíčně — odškrtnutím se úkol posune na další termín (styl Todoist).
-- **Štítky a hledání:** tagy napříč projekty, fulltext a rychlé filtry **Dnes / Tento týden / Po termínu**.
-- **Kalendář:** měsíční přehled úkolů s rychlým plánováním.
-- **Command Palette (Ctrl/Cmd + K):** skoč kamkoli; `/` filtruje úkoly v projektu.
-- **API pro AI agenty:** zabezpečené REST API + **MCP server**, ať agenti (custom GPTs, Gemini/Gemma) spolehlivě plánují a upravují úkoly.
-- **Google Calendar Sync:** robustní synchronizace přes durable outbox (idempotentní, s retry).
-- **Export dat:** JSON, Markdown, CSV.
-
----
-
-## 🏗️ Architektura
-- **Backend:** Node.js (Express, ES modules), SQLite (WAL). Jediný proces, < 70 MB RAM.
-- **Frontend:** React (Vite), Tailwind CSS, Framer Motion, Lucide.
-- **Produkce:** frontend se zkompiluje do statických souborů a Express je servíruje na portu `3000`.
-
----
-
-## 🚀 Spuštění (lokálně)
+## Spuštění (lokálně)
 
 ```bash
-# 1. Závislosti (Arch: ./scripts/install-arch.sh; jinak ručně)
-npm run install:all
+npm run install:all        # závislosti (Arch: ./scripts/install-arch.sh)
 
-# 2a. Vývoj — API :3000 + Vite :5173 (proxy, hot reload)
-npm run dev            # → http://localhost:5173
-
-# 2b. Produkce — sjednocený server na :3000
-./scripts/start-app.sh # build frontendu + NODE_ENV=production npm start
+npm run dev                # vývoj: API :3000 + Vite :5173 (hot reload) → http://localhost:5173
+./scripts/start-app.sh     # produkce: build frontendu + node server na :3000
 ```
 
-Konfigurace přes `.env` (viz [`.env.example`](.env.example)): `PORT`, `HOST`, `NODE_ENV`, `DB_PATH`, `TODO_SECRET_KEY`, `CORS_ORIGINS`, `LOCAL_UI_BYPASS`, `PUBLIC_BASE_URL`.
+Konfigurace přes `.env` (viz [`.env.example`](.env.example)): `PORT`, `HOST`,
+`NODE_ENV`, `DB_PATH`, `TODO_SECRET_KEY`, `LOCAL_UI_BYPASS`, `PUBLIC_BASE_URL`.
 
-### Nasazení na Raspberry Pi / server
-Viz [`deploy/README.md`](deploy/README.md) — nginx (SSL reverse proxy), systemd unit, `deploy/install-pi.sh` (první instalace) a `scripts/deploy-pi.sh` (aktualizace).
+Nasazení na server / Raspberry Pi (nginx + systemd + port forwarding): viz
+[`deploy/README.md`](deploy/README.md).
 
----
+## API pro AI agenty
 
-## 🤖 API pro AI agenty
+Lokální UI na stejném zařízení token nepotřebuje (loopback). Vzdálení klienti
+posílají `Authorization: Bearer <token>`; token vytvoříš v **Nastavení → AI Agenti**
+a ukládá se jen jako hash.
 
-Lokální UI na stejném zařízení (loopback, stejný origin) token nepotřebuje. **Nelokální** klienti posílají:
+- `GET /api/agent/guide` — stručný návod do system promptu (i pro malé modely).
+- `GET /api/agent/state` — projekty + úkoly jedním voláním.
+- `GET /api/docs` — přehled, `GET /api/docs/openapi.json` — OpenAPI 3.1.
 
-```
-Authorization: Bearer <váš_token>
-```
+**MCP server:** `npm run mcp` (stdio, 8 nástrojů, tenká vrstva nad API). Návod pro
+agenta: [`docs/MCP.md`](docs/MCP.md) · [`docs/MCP.en.md`](docs/MCP.en.md).
 
-Token vytvoříš v **Nastavení → AI Agenti (API)**. Tokeny se ukládají jen jako hash (SHA‑256) — surovou hodnotu uvidíš jen jednou. Při prvním startu se výchozí token zapíše do `INITIAL_TOKEN.txt` (práva 0600) — zkopíruj a smaž.
+Hlavní endpointy:
 
-### Nejrychlejší start pro agenta
-- `GET /api/agent/guide` — stručný návod v Markdownu přímo do system promptu (i pro malé modely jako Gemma).
-- `GET /api/agent/state` — snapshot všech projektů a úkolů jedním voláním.
-- `GET /api/docs` — přehledová stránka, `GET /api/docs/openapi.json` — OpenAPI 3.1.
-
-### MCP server (Model Context Protocol)
-Pro agenty mluvící MCP je k dispozici stdio server (tenká vrstva nad API, znovu používá veškerou validaci a synchronizaci):
-
-```bash
-# HOTOVO server musí běžet; pak agenta nasměruj na:
-npm run mcp           # = node server/mcp.js
-# nelokální/zabezpečený provoz: HOTOVO_API_TOKEN=<token> npm run mcp
-```
-
-Nástroje: `get_state`, `list_projects`, `create_project`, `list_tasks`, `create_task`, `update_task`, `complete_task`, `delete_task`. Stručný návod pro agenta: [`docs/MCP.md`](docs/MCP.md) (EN: [`docs/MCP.en.md`](docs/MCP.en.md)).
-
-### Hlavní endpointy
-- `GET /api/tasks` — výpis (filtry `list_id`, `status`, `priority`, `due_date`, `search`, `tag`, `due=today|week|overdue`)
-- `POST /api/tasks` — vytvořit úkol/podúkol (`parent_id` = podúkol, musí být ve stejném projektu); pole `recurrence`, `tags`
-- `PUT /api/tasks/:id` — upravit / dokončit
-- `DELETE /api/tasks/:id` — smazat (s podúkoly `?confirm=true`)
-- `GET /api/lists` · `POST /api/lists` · `DELETE /api/lists/:id?confirm=true`
+- `GET /api/tasks` — filtry `list_id`, `status`, `priority`, `due_date`, `search`, `tag`, `due=today|week|overdue`
+- `POST /api/tasks` — vytvořit úkol/podúkol (`parent_id` musí být ve stejném projektu); pole `recurrence`, `tags`
+- `PUT /api/tasks/:id`, `DELETE /api/tasks/:id` (s podúkoly `?confirm=true`)
+- `GET /api/lists`, `POST /api/lists`, `DELETE /api/lists/:id?confirm=true`
 - `GET /api/tokens/export-data?format=markdown|json|csv`
 
----
+## Google Calendar
 
-## 🔒 Bezpečnost (přehled)
-- **Fail‑closed auth**, hashované tokeny, žádný zadrátovaný výchozí token.
-- Server se váže na `127.0.0.1`; pro LAN nastav `HOST=0.0.0.0` až po vytvoření tokenů.
-- Za reverzní proxy nastav `LOCAL_UI_BYPASS=false` (lokální bypass se navíc sám vypne při forwarded hlavičkách).
-- Citlivé údaje (OAuth) šifrované at‑rest; pro silnější ochranu nastav `TODO_SECRET_KEY`.
-- Bezpečnostní hlavičky (anti‑clickjacking), parametrizované SQL, ošetřený CSV/Markdown export.
-
----
-
-## 📅 Google Calendar Sync
 1. [Google Cloud Console](https://console.cloud.google.com/) → nový projekt → povol **Google Calendar API**.
-2. **OAuth consent screen**: typ *External*, přidej svůj e‑mail mezi testovací uživatele.
-3. **Credentials** → vytvoř **OAuth client ID** (Webová aplikace).
-4. **Authorized redirect URI**: `http://localhost:3000/api/sync/callback` (popř. `https://<tvá-doména>/api/sync/callback`).
-5. V appce **Nastavení → Google Kalendář** zadej Client ID + Secret, ulož a připoj účet.
+2. **OAuth consent screen** → *External*, přidej svůj e‑mail mezi testovací uživatele.
+3. **Credentials** → **OAuth client ID** (Web application).
+4. **Authorized redirect URI**: `http://localhost:3000/api/sync/callback` (nebo `https://<doména>/api/sync/callback`).
+5. V appce **Nastavení → Google Kalendář** zadej Client ID + Secret a připoj účet.
 
----
+Úkol s termínem se pak automaticky propíše do kalendáře; bez termínu se
+nesynchronizuje.
 
-## 🧪 Testy
+## Testy
+
 ```bash
 npm run test:backend   # node:test API integrační testy
 npm run test:e2e       # Playwright e2e (izolovaný port + čistá test DB)
 ```
 
-## 📄 Licence
-MIT (viz [LICENSE](LICENSE)).
+## Licence
+
+MIT — viz [LICENSE](LICENSE).
